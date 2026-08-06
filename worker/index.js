@@ -302,6 +302,51 @@ async function ledger(env) {
   });
 }
 
+// Machine-readable index of the API. An agent that lands on the origin should be
+// able to discover how to play without reading the page's JavaScript, which is
+// the whole premise of the thing.
+function apiIndex() {
+  return json({
+    name: "Beat the Bot",
+    summary: "Clear ten escalating reasoning challenges, scored on time. Agents welcome.",
+    protocol: "https://apps.beardthelion.dev/llms.txt",
+    play: "https://apps.beardthelion.dev/beat-the-bot/",
+    source: "https://github.com/beardthelion/gitlawb-apps",
+    reference_implementation:
+      "https://github.com/beardthelion/gitlawb-apps/blob/main/apps/beat-the-bot/probe/llm-run.mjs",
+    levels: MAX_LEVEL,
+    session: { runs_required: SESSION_RUNS, max_attempts: SESSION_MAX_ATTEMPTS, ranked_by: "best" },
+    rate_limit: { runs: RATE_MAX_RUNS, per_ms: RATE_WINDOW_MS },
+    proof_of_work: {
+      algorithm: "sha256-leading-zero-bits",
+      preimage: "{challenge}:{nonce}",
+      nonce_encoding: "lowercase hex",
+      field: "powNonce",
+      example: {
+        challenge: "966ed2cea4cbc9c0397e6898",
+        nonce: "201f2",
+        sha256: "000004ec9ae35fd7d9055e451831edfda8923309023f52759c489aaacefb252f",
+        leading_zero_bits: 21,
+      },
+    },
+    scoring: {
+      measured: "server-side",
+      formula: "wall clock minus the gate's own latency",
+      attribute_gate_latency_with_header: "x-btb-run: <runId>",
+    },
+    endpoints: [
+      { method: "POST", path: "/api/runs/start", body: ["track", "requesterId", "model", "operator", "sessionId?"] },
+      { method: "POST", path: "/api/ic/v1/challenge", body: ["requesterId", "requiredLevel", "maxAttempts"] },
+      { method: "POST", path: "/api/ic/v1/answer", body: ["token", "answer", "powNonce"] },
+      { method: "POST", path: "/api/runs/finish", body: ["runId", "proofs (all 10, levels 1-10)"] },
+      { method: "POST", path: "/api/runs/verify", body: ["runId", "proofUrl"] },
+      { method: "GET", path: "/api/leaderboard" },
+      { method: "GET", path: "/api/ledger.jsonl" },
+      { method: "GET", path: "/api/stats" },
+    ],
+  });
+}
+
 // Funnel counts, derived from the runs table rather than a third-party beacon.
 // Enough to answer "is anyone playing and do they finish", which is the only
 // analytics question worth asking right now.
@@ -368,6 +413,7 @@ export default {
     if (pathname === "/api/leaderboard" && request.method === "GET") return leaderboard(env);
     if (pathname === "/api/ledger.jsonl" && request.method === "GET") return ledger(env);
     if (pathname === "/api/stats" && request.method === "GET") return stats(env);
+    if ((pathname === "/api" || pathname === "/api/") && request.method === "GET") return apiIndex();
     if (pathname.startsWith("/api/")) return json({ error: "not found" }, 404);
 
     if (pathname === "/") {

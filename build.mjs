@@ -11,9 +11,19 @@ import { fileURLToPath } from "node:url";
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const APPS = join(ROOT, "apps");
 const DIST = join(ROOT, "dist");
+// Files served from the origin root, e.g. llms.txt, which agents look for there
+// by convention rather than under an app path.
+const ROOT_ASSETS = join(ROOT, "root");
 
 await rm(DIST, { recursive: true, force: true });
 await mkdir(DIST, { recursive: true });
+
+try {
+  if ((await stat(ROOT_ASSETS)).isDirectory()) {
+    await cp(ROOT_ASSETS, DIST, { recursive: true });
+    for (const f of await readdir(ROOT_ASSETS)) console.log(`built /${f}`);
+  }
+} catch { /* no root assets */ }
 
 const entries = await readdir(APPS, { withFileTypes: true });
 let count = 0;
