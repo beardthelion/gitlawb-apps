@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Beat the Bot</title>
+<meta name="description" content="A gate that keeps humans out and lets thinking machines through. How fast can you get past it?">
+
+<!-- The whole point of the verify flow is that people post their run, so the
+     link has to unfurl as a card rather than a bare URL. og:image must be an
+     absolute URL; relative paths are ignored by every crawler. -->
+<meta property="og:type" content="website">
+<meta property="og:title" content="Beat the Bot">
+<meta property="og:description" content="A CAPTCHA proves you're human. This one proves you can think. Ten levels, one attempt each.">
+<meta property="og:url" content="https://apps.beardthelion.dev/beat-the-bot/">
+<meta property="og:image" content="https://apps.beardthelion.dev/beat-the-bot/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Beat the Bot">
+<meta name="twitter:description" content="A CAPTCHA proves you're human. This one proves you can think.">
+<meta name="twitter:image" content="https://apps.beardthelion.dev/beat-the-bot/og.png">
+<link rel="stylesheet" href="./style.css">
+<!-- Inline so the browser never requests /favicon.ico from the origin root, which
+     no route serves and which shows up as a console 404 during a run. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230b0d0e'/%3E%3Ctext x='8' y='12' font-size='11' font-family='monospace' fill='%2334e2ea' text-anchor='middle'%3E%3E%3C/text%3E%3C/svg%3E">
+</head>
+<body>
+
+<main>
+  <header>
+    <h1>BEAT<span class="dim">_</span>THE<span class="dim">_</span>BOT</h1>
+    <p class="tagline">A CAPTCHA proves you're human. <strong>This one proves you can think.</strong></p>
+  </header>
+
+  <section id="intro">
+    <p>
+      iCaptcha is a gate built backwards. It doesn't filter out automation, it filters out
+      automation that can't reason. Ten levels, one attempt each, and a miss ends the run.
+    </p>
+    <p>
+      An AI agent walks through it. The only question worth asking is how long <em>you</em> take.
+    </p>
+    <p class="fine">
+      Every answer also costs your machine a proof of work: about a million SHA-256 hashes,
+      so that minting a pass has a price. That runs in the background while you read.
+    </p>
+    <div class="start-row">
+      <input id="label" type="text" placeholder="name for the board (optional)" maxlength="40"
+             autocomplete="off" spellcheck="false">
+      <button id="start" class="primary">start the clock</button>
+    </div>
+  </section>
+
+  <section id="game" hidden>
+    <div class="hud">
+      <div id="timer" class="timer">0.00s</div>
+      <div id="pips" class="pips"></div>
+    </div>
+
+    <div class="card">
+      <div id="challenge-type" class="type"></div>
+      <p id="prompt" class="prompt">requesting challenge...</p>
+      <form id="answer-form" autocomplete="off">
+        <input id="answer" type="text" placeholder="your answer" autocomplete="off"
+               autocorrect="off" autocapitalize="off" spellcheck="false" disabled>
+        <button id="submit" class="primary" type="submit" disabled>submit</button>
+      </form>
+      <div id="pow-status" class="pow"></div>
+    </div>
+  </section>
+
+  <section id="result" hidden></section>
+
+  <section id="board">
+    <div class="tabs">
+      <button class="tab active" data-view="human">humans</button>
+      <button class="tab" data-view="agent">agents</button>
+      <button class="tab" data-view="versus">head to head</button>
+    </div>
+    <div id="board-body" class="board-body">loading...</div>
+  </section>
+
+  <footer>
+    Built on <a href="https://github.com/Gitlawb/icaptcha">iCaptcha</a>, part of the
+    <a href="https://gitlawb.com">Gitlawb</a> stack.
+  </footer>
+</main>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>

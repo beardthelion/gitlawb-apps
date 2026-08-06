@@ -1,0 +1,19 @@
+name = "gitlawb-apps"
+main = "worker/index.js"
+compatibility_date = "2026-08-01"
+
+# Top-level keys must precede every table header, or TOML folds them into the
+# preceding table. Putting this after [assets] made it "assets.routes", which
+# wrangler ignored, and the custom domain silently never attached.
+routes = [{ pattern = "apps.beardthelion.dev", custom_domain = true }]
+
+# Static files are served straight from the edge; the worker only runs for
+# /api/* and the root redirect.
+[assets]
+directory = "dist"
+binding = "ASSETS"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "gitlawb-apps"
+database_id = "75d51b26-7918-412f-a630-d88252ab67c1"

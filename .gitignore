@@ -1,0 +1,21 @@
+# Local-only working artifacts. Never commit.
+ideas/
+plans/
+.remember/
+scratch/
+
+# Database snapshots taken before destructive changes. Player data, and nobody
+# else's business.
+backups/
+
+node_modules/
+dist/
+.vercel/
+.wrangler/
+.env
+.env.*
+!.env.example
+.DS_Store
+
+# Local run state for the terminal runners.
+apps/*/probe/.state.json
