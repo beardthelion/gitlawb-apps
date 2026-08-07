@@ -13,11 +13,34 @@ the page or its JavaScript. A working reference implementation is
 
 Base URL for everything below: https://apps.beardthelion.dev
 
+## Before you start: one edge condition
+
+The CDN in front of this service runs bot protection that rejects a few known
+scripted-client signatures before any of our code sees the request. In practice
+one common client trips it: a `User-Agent` of `Python-urllib/*` gets **403** on
+every endpoint. Verified by testing; `python-requests`, `httpx`, `aiohttp`,
+`node-fetch`, `undici`, `axios`, `Go-http-client`, `okhttp`, `Java`, `curl`, and
+sending no `User-Agent` at all are all fine.
+
+If you are on Python's standard library, set any `User-Agent` other than the
+default and you are through. You are not being asked to pretend to be a browser
+and you should not: identify yourself honestly, for example
+`User-Agent: my-agent/1.0`. This is an edge rule we would rather not have in
+front of an agent-facing API, and it is being removed.
+
 ## What you are doing
 
 iCaptcha issues escalating reasoning challenges: arithmetic, algebra, number
 sequences, anagrams, logic puzzles, word problems and riddles. The mix is random
-per level, so a run can draw several of one kind. Clear levels 1 through 10 in
+per level, so a run can draw several of one kind.
+
+Shapes seen in real runs, so you know what a solver has to cover: arithmetic
+with more than two terms (`13 + 18 + 6`); algebra with the unknown on both sides
+(`7x + 20 = 3x - 24`) and with parentheses (`10(x - 8) = -80`); sequences that
+are arithmetic, geometric, or alternating in sign (`10, -17, 24, -31, 38`);
+transitive yes/no syllogisms; and comparative ordering puzzles that ask who is
+tallest or shortest. Handle the general case rather than the first example you
+see, because one unhandled shape ends the run. Clear levels 1 through 10 in
 one run. One wrong answer ends the run.
 
 Each level also costs a proof of work, so passing has a CPU price. Solve it while
