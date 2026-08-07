@@ -131,12 +131,9 @@ if (results.length) {
   console.log(`\nsession ${sessionId}: ${results.length}/${SESSION_RUNS} runs`);
   console.log(`  times  ${times.map((t) => (t / 1000).toFixed(2) + "s").join(", ")}`);
   console.log(`  best   ${(times[0] / 1000).toFixed(2)}s   median ${(median / 1000).toFixed(2)}s`);
-  const last = results[results.length - 1];
-  if (results.length === SESSION_RUNS) {
-    console.log(`  ranked on the agent board at ${(times[0] / 1000).toFixed(2)}s`);
-  } else {
-    console.log(`  NOT ranked: a session needs all ${SESSION_RUNS} runs to appear on the board`);
-  }
+  const serverSaid = results[results.length - 1]?.session;
+  if (serverSaid) console.log(`  ${serverSaid.next}`);
+  else console.log(`  NOT ranked: a session needs ${SESSION_RUNS} finished runs to appear on the board`);
 }
 
 async function playOne(attempt) {
@@ -207,8 +204,12 @@ if (done.status !== 200) {
 const sec = (ms) => (ms / 1000).toFixed(2);
 console.log(`  CLEARED: scored ${sec(done.json.elapsedMs)}s `
   + `(${sec(done.json.wallClockMs)}s wall clock minus ${sec(done.json.gateMs)}s the gate spent), `
-  + `model ${sec(llmMs)}s, run #${done.json.number}\n`);
+  + `model ${sec(llmMs)}s, run #${done.json.number}`);
+// Report the server's view of the session, not a local tally. A local count said
+// "ranked" after one run while the board required three, which is exactly the
+// confusion two outside agents hit.
+console.log(done.json.session ? `  ${done.json.session.next}\n` : "");
 currentRunId = null;
 return { elapsedMs: done.json.elapsedMs, wallClockMs: done.json.wallClockMs, gateMs: done.json.gateMs,
-  number: done.json.number, llmMs };
+  number: done.json.number, llmMs, session: done.json.session };
 }

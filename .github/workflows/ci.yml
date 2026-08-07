@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # No dependencies to install: everything here is node stdlib on purpose.
+      - name: Syntax check every module
+        run: |
+          for f in $(git ls-files '*.js' '*.mjs' | grep -v '^dist/'); do
+            node --check "$f"
+          done
+
+      - name: Leaderboard rules (scoring, validation, provenance, rate limiting)
+        run: node api/lib/leaderboard.test.mjs
+
+      - name: Proof of work, optimized solver
+        run: node apps/beat-the-bot/probe/test-pow-fast.mjs
+
+      - name: SHA-256 against node's native crypto
+        run: node apps/beat-the-bot/probe/test-sha256.mjs
+
+      - name: Build produces the shipping tree
+        run: |
+          node build.mjs
+          test -f dist/llms.txt
+          test -f dist/beat-the-bot/index.html
+          test -f dist/beat-the-bot/lib/pow-fast.js
+
+      # Literal control bytes inside a string or character class make a source
+      # file read as binary: `file` reports "data" and plain grep silently
+      # returns nothing for it. Two files in this repo had that, which quietly
+      # hid all the scoring policy from any grep-based sweep.
+      - name: Source files are text, not accidentally binary
+        run: |
+          fail=0
+          for f in $(git ls-files '*.js' '*.mjs' '*.json' '*.md' '*.sql' '*.html' '*.css' '*.txt' '*.yml'); do
+            if file -b "$f" | grep -qi 'data'; then
+              echo "::error file=$f::reads as binary, likely a literal control byte; use an escape"
+              fail=1
+            fi
+          done
+          exit $fail
+
+      # The protocol file is the product's agent-facing entry point. If it stops
+      # describing the API, agents break and nothing else in this suite notices.
+      - name: Protocol file covers the endpoints it must
+        run: |
+          fail=0
+          for needle in \
+            "/api/runs/start" "/api/runs/finish" "/api/ic/v1/challenge" \
+            "/api/ic/v1/answer" "x-btb-run" "powNonce" "sessionId" "label"; do
+            grep -q -- "$needle" root/llms.txt || { echo "::error::llms.txt no longer documents $needle"; fail=1; }
+          done
+          exit $fail
+
+      # The worked example in the protocol is what an implementer checks their
+      # hashing against before spending an attempt. A wrong one is worse than none.
+      - name: Protocol's proof-of-work example actually hashes correctly
+        run: |
+          node -e '
+            const { createHash } = require("node:crypto");
+            const fs = require("node:fs");
+            const txt = fs.readFileSync("root/llms.txt", "utf8");
+            // Anchor to the example block. Parsing the whole file picks up the
+            // word "nonce" from the prose above and reads the wrong value.
+            const i = txt.indexOf("Worked example");
+            if (i < 0) { console.error("no worked example in llms.txt"); process.exit(1); }
+            const block = txt.slice(i, i + 600);
+            const challenge = /pow\.challenge\s+([0-9a-f]{16,})/.exec(block)?.[1];
+            const nonce = /\nnonce\s+([0-9a-f]+)/.exec(block.replace(/^\s+/gm, "\n"))?.[1];
+            const want = /sha256\s+([0-9a-f]{64})/.exec(block)?.[1];
+            if (!challenge || !nonce || !want) {
+              console.error("could not parse the worked example", { challenge, nonce, want });
+              process.exit(1);
+            }
+            const got = createHash("sha256").update(`${challenge}:${nonce}`).digest("hex");
+            if (got !== want) {
+              console.error(`documented digest is wrong\n  documented ${want}\n  actual     ${got}`);
+              process.exit(1);
+            }
+            let bits = 0;
+            for (const b of Buffer.from(got, "hex")) {
+              if (b === 0) { bits += 8; continue; }
+              bits += Math.clz32(b) - 24; break;
+            }
+            if (bits < 20) { console.error(`only ${bits} leading zero bits, needs 20`); process.exit(1); }
+            console.log(`worked example verified: ${challenge}:${nonce} -> ${bits} leading zero bits`);
+          '

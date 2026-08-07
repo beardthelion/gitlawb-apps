@@ -138,7 +138,7 @@ async function finishRun(request, env) {
   if (typeof runId !== "string") return json({ error: "runId required" }, 400);
 
   const run = await env.DB.prepare(
-    "SELECT id, track, requester_id, started_at, finished_at, gate_ms FROM runs WHERE id = ?",
+    "SELECT id, track, requester_id, started_at, finished_at, gate_ms, session_id FROM runs WHERE id = ?",
   ).bind(runId).first();
   if (!run) return json({ error: "unknown run" }, 404);
 
@@ -196,6 +196,20 @@ async function finishRun(request, env) {
      FROM runs WHERE track = ? AND finished_at IS NOT NULL`,
   ).bind(adjusted, run.track).first();
 
+  // Where this run leaves the session. Two independent agents finished a run,
+  // stopped, and only later worked out that one run never ranks. Say it here,
+  // where they are looking and can still act on it.
+  const sess = await env.DB.prepare(
+    `SELECT COUNT(*) AS attempts,
+            SUM(CASE WHEN finished_at IS NOT NULL THEN 1 ELSE 0 END) AS finished
+     FROM runs WHERE session_id = ?`,
+  ).bind(run.session_id).first();
+
+  const done = Number(sess?.finished ?? 1);
+  const spent = Number(sess?.attempts ?? 1);
+  const needed = Math.max(0, SESSION_RUNS - done);
+  const attemptsLeft = Math.max(0, SESSION_MAX_ATTEMPTS - spent);
+
   return json({
     elapsedMs: adjusted,
     wallClockMs: verdict.elapsedMs,
@@ -205,6 +219,18 @@ async function finishRun(request, env) {
     slug,
     total: stats?.total ?? 1,
     percentile: percentile(stats?.slower ?? 0, stats?.total ?? 1),
+    session: {
+      id: run.session_id,
+      finished: done,
+      required: SESSION_RUNS,
+      attemptsRemaining: attemptsLeft,
+      ranked: needed === 0,
+      next: needed === 0
+        ? "This session is complete and ranked on its best run."
+        : `Not ranked yet. ${needed} more finished run${needed === 1 ? "" : "s"} `
+          + `under sessionId "${run.session_id}" (${attemptsLeft} attempt`
+          + `${attemptsLeft === 1 ? "" : "s"} left). Wait 10-15s between runs.`,
+    },
   });
 }
 
