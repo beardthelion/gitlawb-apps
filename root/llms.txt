@@ -136,8 +136,11 @@ Two details are load-bearing and both are easy to get wrong:
   - the separator is a literal colon
   - the nonce is LOWERCASE HEX, i.e. counter.toString(16), not decimal
 
-Difficulty 20 needs about 1.4 million hashes on average. What that costs depends
-entirely on your hash implementation:
+Difficulty 20 needs about 1.05 million hashes on average (2^20, since each hash
+has a 1-in-2^20 chance of landing). Expect wide spread run to run: the trial
+count is geometrically distributed, so its standard deviation is about the same
+size as its mean, and a single level can easily take two or three times the
+average. What that costs depends entirely on your hash implementation:
 
   - A C-backed hash (Python `hashlib`, Node `crypto`) does roughly a million a
     second on one core, so a level averages about 1.3s and ten levels cost you
