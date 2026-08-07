@@ -29,6 +29,17 @@ const state = {
 
 const $ = (id) => document.getElementById(id);
 
+// Self-reported input provenance. Sent with the run and shown on the board as a
+// property of the claim, never as a gate: an agent driving a real browser
+// produces real keystrokes, so this cannot prove anything. It distinguishes
+// someone typing from someone pasting, and that is all it claims to do.
+const signals = { keystrokes: 0, pastes: 0, pointer: 0, blur: 0 };
+const resetSignals = () => Object.keys(signals).forEach((k) => { signals[k] = 0; });
+addEventListener("keydown", (e) => { if (!e.metaKey && !e.ctrlKey) signals.keystrokes++; }, true);
+addEventListener("paste", () => { signals.pastes++; }, true);
+addEventListener("pointermove", () => { signals.pointer++; }, { passive: true, capture: true });
+addEventListener("blur", () => { signals.blur++; });
+
 // The board is the human-vs-human framing: a player's result is reported against
 // other people first, with the machine times as a separate track rather than as
 // the bar they failed to clear.
@@ -408,7 +419,9 @@ function finish(cleared, reason) {
 // still shows its own time, it just doesn't get ranked.
 async function submitRun() {
   if (!state.runId) return;
-  const res = await api("/api/runs/finish", { runId: state.runId, proofs: state.proofs });
+  const res = await api("/api/runs/finish", {
+    runId: state.runId, proofs: state.proofs, input: { ...signals },
+  });
   if (res && typeof res.percentile === "number") {
     state.standing = {
       percentile: res.percentile, total: res.total, number: res.number, slug: res.slug,
@@ -435,6 +448,7 @@ async function startRun() {
     splits: [],
     phase: "playing",
   });
+  resetSignals();
   el.intro.hidden = true;
   el.result.hidden = true;
   el.game.hidden = false;
@@ -583,6 +597,12 @@ function rankList(rows, emptyText) {
     }
 
     const badge = node("td", "badge-cell");
+    if (r.input && r.input !== "unknown") {
+      const chip = node("span", `badge badge-input badge-${r.input}`, r.input);
+      chip.title = "Self-reported by the client. Forgeable, so it is shown as a "
+        + "property of the claim, not as proof.";
+      badge.append(chip, document.createTextNode(" "));
+    }
     badge.append(verificationBadge(r));
 
     tr.append(node("td", "rank", `${i + 1}`), who, badge, node("td", null, fmt(r.elapsed_ms)));
@@ -599,17 +619,29 @@ function renderBoard() {
     return;
   }
 
+  const unrankedFor = (track) => boardData.unranked?.[track] ?? [];
+
+  const appendUnranked = (track) => {
+    const rows = unrankedFor(track);
+    if (!rows.length) return;
+    el.board.append(node("p", "splits-caption", "recorded, not ranked"));
+    el.board.append(rankList(rows, ""));
+    el.board.append(node("p", "board-note",
+      "A time only ranks once someone puts a public account behind it. Nothing here "
+      + "can tell a human from an agent, so the board ranks what was staked rather "
+      + "than what was claimed."));
+  };
+
   if (boardView === "human") {
-    el.board.append(rankList(boardData.human, "Nobody has cleared it yet. Be the first."));
+    el.board.append(rankList(boardData.human,
+      "No verified human runs yet. Clear it, post your time, and you're on the board."));
+    appendUnranked("human");
     return;
   }
   if (boardView === "agent") {
     el.board.append(rankList(boardData.agent,
-      `No completed agent sessions yet. An agent entry is the best of ${boardData.sessionRuns ?? 3} runs.`));
-    if (boardData.agent?.length) {
-      el.board.append(node("p", "board-note",
-        `Agents run ${boardData.sessionRuns ?? 3} times and rank on their best. Humans get one attempt.`));
-    }
+      `No verified agent sessions yet. An entry is the best of ${boardData.sessionRuns ?? 3} runs.`));
+    appendUnranked("agent");
     return;
   }
 

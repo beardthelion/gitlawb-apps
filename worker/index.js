@@ -10,6 +10,7 @@ import {
   validateRun, normalizeTrack, normalizeLabel, percentile, MAX_LEVEL,
   parseProofUrl, slugify, normalizeAgentFields, scoreSession, SESSION_RUNS, SESSION_MAX_ATTEMPTS,
   adjustedTime, MAX_GATE_CALLS, clientHash, RATE_WINDOW_MS, RATE_MAX_RUNS,
+  inputProvenance, normalizeSignals,
 } from "../api/lib/leaderboard.js";
 
 const json = (body, status = 200) =>
@@ -161,6 +162,10 @@ async function finishRun(request, env) {
   const gateMs = Number(run.gate_ms ?? 0);
   const adjusted = adjustedTime(verdict.elapsedMs, gateMs);
 
+  // Self-reported by the client. Stored as disclosure, never as a gate: it is
+  // trivially forgeable, so refusing a run over it would punish honesty.
+  const signals = normalizeSignals(value?.input);
+
   // Guard the finish with the same condition that was checked, so two concurrent
   // submissions for one run cannot both write a result. `number` is assigned here
   // and is unique-indexed, so a racing pair cannot share one; retry on collision.
@@ -169,9 +174,12 @@ async function finishRun(request, env) {
     try {
       write = await env.DB.prepare(
         `UPDATE runs SET finished_at = ?, elapsed_ms = ?, adjusted_ms = ?,
+           input_keystrokes = ?, input_pastes = ?, input_pointer = ?, input_blur = ?,
            number = (SELECT COALESCE(MAX(number), 0) + 1 FROM runs)
          WHERE id = ? AND finished_at IS NULL`,
-      ).bind(Date.now(), verdict.elapsedMs, adjusted, runId).run();
+      ).bind(Date.now(), verdict.elapsedMs, adjusted,
+        signals?.keystrokes ?? null, signals?.pastes ?? null,
+        signals?.pointer ?? null, signals?.blur ?? null, runId).run();
     } catch (err) {
       if (attempt === 2) throw err;
     }
@@ -201,22 +209,29 @@ async function finishRun(request, env) {
 }
 
 async function leaderboard(env) {
-  // Humans: one attempt, one row.
-  const topHuman = async () => {
+  // Provenance is derived, not stored as a label, so the rule lives in one place.
+  const withProvenance = (r) => ({
+    ...r,
+    input: inputProvenance({ keystrokes: r.input_keystrokes, pastes: r.input_pastes }),
+  });
+
+  // Humans: one attempt, one row. Ranked set is verified only.
+  const topHuman = async (verified) => {
     const { results } = await env.DB.prepare(
       `SELECT number, slug, label, model, operator, verification, proof_url,
+              input_keystrokes, input_pastes,
               adjusted_ms AS elapsed_ms, elapsed_ms AS wall_ms, gate_ms, finished_at
        FROM runs
-       WHERE track = 'human' AND finished_at IS NOT NULL
+       WHERE track = 'human' AND finished_at IS NOT NULL AND verification = ?
        ORDER BY adjusted_ms ASC LIMIT ?`,
-    ).bind(LEADERBOARD_LIMIT).all();
-    return results ?? [];
+    ).bind(verified ? "x" : "none", LEADERBOARD_LIMIT).all();
+    return (results ?? []).map(withProvenance);
   };
 
   // Agents: a session of SESSION_RUNS finished runs, ranked by best. A session
   // that has not completed all three does not rank, so a single lucky run cannot
   // sit at the top of the board on its own.
-  const topAgent = async () => {
+  const topAgent = async (verified) => {
     const { results } = await env.DB.prepare(
       `SELECT session_id,
               MIN(number) AS number,
@@ -233,10 +248,10 @@ async function leaderboard(env) {
        FROM runs
        WHERE track = 'agent' AND finished_at IS NOT NULL AND session_id IS NOT NULL
        GROUP BY session_id
-       HAVING COUNT(*) >= ?
+       HAVING COUNT(*) >= ? AND MAX(verification) = ?
        ORDER BY MIN(adjusted_ms) ASC
        LIMIT ?`,
-    ).bind(SESSION_RUNS, LEADERBOARD_LIMIT).all();
+    ).bind(SESSION_RUNS, verified ? "x" : "none", LEADERBOARD_LIMIT).all();
 
     return (results ?? []).map((r) => {
       const times = String(r.times ?? "").split(",").map(Number).filter((n) => Number.isFinite(n));
@@ -256,14 +271,20 @@ async function leaderboard(env) {
     return r?.n ?? 0;
   };
 
-  const [human, agent, humanCount, agentCount] = await Promise.all([
-    topHuman(), topAgent(), count("human"), count("agent"),
+  const [human, agent, humanUnranked, agentUnranked, humanCount, agentCount] = await Promise.all([
+    topHuman(true), topAgent(true), topHuman(false), topAgent(false),
+    count("human"), count("agent"),
   ]);
 
   return json({
+    // Ranked: someone put a public account behind the claim. Detection is not
+    // possible, so the board ranks what was staked rather than pretending to
+    // know what typed the answers.
     human, agent,
+    unranked: { human: humanUnranked, agent: agentUnranked },
     counts: { human: humanCount, agent: agentCount },
     sessionRuns: SESSION_RUNS,
+    ranking: "verified runs only; unverified runs are recorded and shown, not ranked",
   });
 }
 

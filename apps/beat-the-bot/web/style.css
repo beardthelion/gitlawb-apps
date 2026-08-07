@@ -260,3 +260,8 @@ a:hover { color: var(--accent); }
 
 .recon { margin-bottom: 0.4rem; }
 .splits-caption { color: var(--dim); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em; margin: 1.2rem 0 0; }
+
+.badge-input { border-color: #2a2f31; }
+.badge-typed { color: var(--accent); border-color: #1d4145; }
+.badge-pasted { color: var(--lose); border-color: #4a2725; }
+.badge-none { color: var(--dim); }
