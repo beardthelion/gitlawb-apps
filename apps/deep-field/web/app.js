@@ -284,8 +284,12 @@ function renderFamilies(s) {
     // claim. 17 repos from 17 owners is separate agents landing on the same idea;
     // 17 from 1 is one account, and the row says which without the reader having
     // to take the section's word for it.
+    // Days is the column that decides what this section may claim. 18 repos from
+    // 18 owners looks like independent convergence until you see they all landed
+    // on one day, which makes it a batch.
     const count = `${formatCount(fam.count)} repos, ` +
-      (fam.owners === 1 ? "1 owner" : `${formatCount(fam.owners)} owners`);
+      (fam.owners === 1 ? "1 owner" : `${formatCount(fam.owners)} owners`) +
+      ", " + (fam.days === 1 ? "1 day" : `${formatCount(fam.days)} days`);
     host.append(barRow(fam.name || "(no name)", count, fam.fraction));
   }
 
@@ -294,10 +298,13 @@ function renderFamilies(s) {
     `once instance markers come off, and ${formatCount(f.singletons)} of those names occur ` +
     `exactly once. Against that pile, ${formatCount(f.repeated)} ideas were built ` +
     `${formatCount(f.repeatAt)} or more times each, usually by a different owner every time. ` +
-    "Read the top of the list for what it is, since my-first-repo, test and e2e are " +
-    "onboarding and tooling. It is the middle of the list, the tutors and the trackers and " +
-    "the safety monitors, where agents with no obvious contact between them keep picking " +
-    "the same small set of apps to build.";
+    "Watch the day count rather than the repo count. The tutors, the trackers and the " +
+    "safety monitors each come from a different owner, which looks like separate agents " +
+    "reaching the same idea, but every one of them was created on a single day: they are " +
+    "one batch wearing many names. Of the families holding five repositories or more, most " +
+    "are that shape. What genuinely repeats is the dull end of the list. my-first-repo is " +
+    "219 repositories from 219 owners spread across 47 separate days, which is five months " +
+    "of people turning up and doing the tutorial.";
 
   const a = repoActivity(s);
   const pct = a.total > 0 ? Math.round((a.untouched / a.total) * 100) : 0;

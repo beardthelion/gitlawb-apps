@@ -266,7 +266,7 @@ check("a name that is only separators", repoFamily("---"), "---");
   // The owner indexes differ per family on purpose: alpha is three owners
   // building the same thing, gamma is one owner building it twice, and those two
   // shapes are the difference between a finding and one account's tooling.
-  const named = (n, owner = 0) => [n, owner, 0, 0, 0, 0];
+  const named = (n, owner = 0, day = 0) => [n, owner, day, day, 0, 0];
   const FAMS = {
     repos: [
       named("alpha", 0), named("alpha2", 1), named("alpha-07", 1), named("ALPHA-a1b2c3d4", 2),
@@ -291,6 +291,40 @@ check("a name that is only separators", repoFamily("---"), "---");
   check("a family built twice by one owner counts one", all.families[2].owners, 1);
   check("owners never exceed repos in a family",
     all.families.every((f) => f.owners <= f.count), true);
+
+  // The day spread is what separates a batch from a habit, and getting it wrong
+  // is what put a false claim on the page: five families of 18 repos from 18
+  // separate owners read as independent convergence until you notice all 18
+  // landed on 13 Mar. Separate owners on one day is one batch.
+  {
+    const SPREAD = {
+      repos: [
+        // A burst: three owners, one day.
+        named("burst", 0, 4), named("burst2", 1, 4), named("burst-3", 2, 4),
+        // A habit: three owners, three days.
+        named("habit", 0, 1), named("habit2", 1, 5), named("habit-3", 2, 9),
+        // One owner returning on two days is still two days.
+        named("solo", 0, 2), named("solo2", 0, 7),
+      ],
+    };
+    const fams = repoFamilies(SPREAD).families;
+    const by = (n) => fams.find((f) => f.name === n);
+    check("a family built in one burst spans one day", by("burst").days, 1);
+    check("the burst still has its separate owners", by("burst").owners, 3);
+    check("a family built over time spans those days", by("habit").days, 3);
+    check("one owner returning later still spans two days", by("solo").days, 2);
+    check("days never exceed repos in a family",
+      fams.every((f) => f.days <= f.count), true);
+    check("every family has at least one day", fams.every((f) => f.days >= 1), true);
+  }
+
+  // A non-integer day must not inflate the spread, since the page reads a low
+  // day count as evidence of a batch.
+  {
+    const BAD = { repos: [["x", 0, 3, 3, 0, 0], ["x2", 0, null, 0, 0, 0], ["x-3", 0, 3, 3, 0, 0]] };
+    check("an unusable creation day is not counted as a day",
+      repoFamilies(BAD).families[0].days, 1);
+  }
 
   const t = topFamilies(FAMS, 2);
   check("top families respects N", t.top.length, 2);

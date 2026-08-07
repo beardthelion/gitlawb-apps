@@ -235,18 +235,31 @@ export function repoFamilies(snapshot) {
   const repos = Array.isArray(snapshot?.repos) ? snapshot.repos : [];
   const counts = new Map();
   // Distinct owners per family, because the count on its own cannot tell the two
-  // cases apart and they mean opposite things: code-tutor is 17 repos from 17
-  // separate owners, while guest-preview-preview is 17 from one. Only the first
-  // is independent agents converging; the second is one account's tooling.
+  // cases apart: code-tutor is 17 repos from 17 separate owners, while
+  // guest-preview-preview is 17 from one, and the second is just one account's
+  // tooling. Owners alone are not enough to call the first one convergence
+  // though, which is what the day count below is for.
   const owners = new Map();
+  // Distinct creation days per family, and this is the one that decides what the
+  // section is allowed to claim. Measured on the current crawl: of the 81
+  // families holding five or more repos, 65 appeared entirely on a single day.
+  // volunteer-match, carbon-footprint, music-teacher, history-guide and
+  // sleep-quality are 18 or 19 repos each from as many separate owners, and
+  // every one of them was created on 13 Mar 2026. Separate owners on one day is
+  // a batch, not agents independently arriving at the same idea. The families
+  // that really do recur are the dull ones: my-first-repo spans 47 days.
+  const days = new Map();
   for (const r of repos) {
     const key = repoFamily(Array.isArray(r) ? r[0] : "");
     counts.set(key, (counts.get(key) ?? 0) + 1);
     if (!owners.has(key)) owners.set(key, new Set());
     owners.get(key).add(Array.isArray(r) ? r[1] : undefined);
+    if (!days.has(key)) days.set(key, new Set());
+    const d = Array.isArray(r) ? r[2] : undefined;
+    if (Number.isInteger(d)) days.get(key).add(d);
   }
   const families = [...counts].map(([name, count]) => ({
-    name, count, owners: owners.get(name).size,
+    name, count, owners: owners.get(name).size, days: days.get(name).size,
   }));
   families.sort((a, b) => b.count - a.count || (a.name < b.name ? -1 : 1));
   return {
@@ -272,6 +285,7 @@ export function topFamilies(snapshot, n = 12, repeatAt = 10) {
       name: f.name,
       count: f.count,
       owners: f.owners,
+      days: f.days,
       fraction: max > 0 ? f.count / max : 0,
     })),
     tailFamilies: tail.length,
