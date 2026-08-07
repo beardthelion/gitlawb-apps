@@ -21,7 +21,7 @@ import {
   DAY_MS, formatCount, dayBaseMs, dayDate, dayLabel, formatUtc, truncateDid,
   dailyNewRepos, dailyFromPairs, cumulative, cumulativeRepos, cumulativeAgents,
   peakDay, ownerCounts, topOwners, topCapabilities, sortedPeers, recentEvents,
-  splitRepoId,
+  splitRepoId, repoFamily, repoFamilies, topFamilies, repoActivity,
 } from "../lib/derive.js";
 
 // An optional path argument, matching test-snapshot.mjs, so a candidate snapshot
@@ -232,6 +232,116 @@ check("non-array capabilities", topCapabilities(null, 5).tailKinds, 0);
 check("malformed capability rows are dropped",
   topCapabilities([["ok", 3], "bad", [null, 2], ["x", "y"]], 5).top.length, 1);
 
+// --- repo name families --------------------------------------------------
+// This is a heuristic over attacker-chosen strings, and a heuristic rots without
+// anyone noticing, so both directions are pinned: what must fold together, and
+// what must stay apart. The must-not cases are the load-bearing half. A rule that
+// merges more is trivially easy to write and produces a confident, wrong finding
+// ("code" was built 40 times) rather than a visible failure.
+check("plain name is its own family", repoFamily("volunteer-match"), "volunteer-match");
+check("trailing digits glued on", repoFamily("my-project2"), "my-project");
+check("trailing digits after a dash", repoFamily("my-project-03"), "my-project");
+check("a long numeric instance id", repoFamily("e2e-1785947444"), "e2e");
+check("an underscore separator", repoFamily("my_project_7"), "my_project");
+check("a hex instance id", repoFamily("guest-preview-preview-0aa3047e1f"), "guest-preview-preview");
+check("a short hex id", repoFamily("agent-f5616d3c"), "agent");
+check("a version suffix", repoFamily("image-gen-v4"), "image-gen");
+check("case is folded", repoFamily("My-First-Repo"), "my-first-repo");
+check("surrounding space is trimmed", repoFamily("  test-repo  "), "test-repo");
+check("non-string name", repoFamily(null), "");
+
+// Must NOT merge. Everything here shares a leading token with something else, so
+// any rule that cuts at the first separator instead of at the suffix reds this
+// block and nothing else.
+check("different ideas sharing a first token stay apart",
+  repoFamily("code-tutor") === repoFamily("code-review"), false);
+check("code-tutor keeps its whole name", repoFamily("code-tutor"), "code-tutor");
+check("a longer word is not the shorter one", repoFamily("testing"), "testing");
+check("test and testing are different families",
+  repoFamily("test") === repoFamily("testing"), false);
+check("a hex-looking suffix with no digit is a word, not an id",
+  repoFamily("wall-facade"), "wall-facade");
+check("only the last suffix goes", repoFamily("e2e-run2-20260318"), "e2e-run2");
+check("digits inside the name survive", repoFamily("covid19-tracker"), "covid19-tracker");
+
+// Degenerate names. A repo name is whatever an agent typed, so these exist.
+check("an all-digit name is left whole", repoFamily("1785947444"), "1785947444");
+check("an empty name", repoFamily(""), "");
+check("a name that is only a suffix", repoFamily("-42"), "-42");
+check("a name that is only separators", repoFamily("---"), "---");
+
+{
+  // 4 x alpha, 2 x beta, 2 x gamma (level, so the tie-break shows), 1 x delta.
+  // The owner indexes differ per family on purpose: alpha is three owners
+  // building the same thing, gamma is one owner building it twice, and those two
+  // shapes are the difference between a finding and one account's tooling.
+  const named = (n, owner = 0) => [n, owner, 0, 0, 0, 0];
+  const FAMS = {
+    repos: [
+      named("alpha", 0), named("alpha2", 1), named("alpha-07", 1), named("ALPHA-a1b2c3d4", 2),
+      named("gamma", 0), named("gamma-9", 0),
+      named("beta", 0), named("beta-1785947444", 1),
+      named("delta", 0),
+    ],
+  };
+  const all = repoFamilies(FAMS);
+  check("families counted", all.familyCount, 4);
+  check("family counts sum to the repo total",
+    all.families.reduce((a, f) => a + f.count, 0), FAMS.repos.length);
+  check("biggest family first", all.families[0].name, "alpha");
+  check("biggest family count", all.families[0].count, 4);
+  // Deterministic tie-break, or a refresh reshuffles rows that did not change.
+  // The real snapshot has 13 families level at 17, so this is not hypothetical.
+  check("level families break the tie on name", all.families[1].name, "beta");
+  check("the other level family follows", all.families[2].name, "gamma");
+  check("smallest family last", all.families[3].name, "delta");
+  check("single-repo families counted", all.singletons, 1);
+  check("a family built by several owners counts them", all.families[0].owners, 3);
+  check("a family built twice by one owner counts one", all.families[2].owners, 1);
+  check("owners never exceed repos in a family",
+    all.families.every((f) => f.owners <= f.count), true);
+
+  const t = topFamilies(FAMS, 2);
+  check("top families respects N", t.top.length, 2);
+  check("biggest family bar is full width", t.top[0].fraction, 1);
+  check("second bar is relative to the biggest", t.top[1].fraction, 0.5);
+  check("tail families counted", t.tailFamilies, 2);
+  check("tail repos counted", t.tailRepos, 3);
+  // The whole point of reporting a tail: shown plus unshown is everything.
+  check("shown plus tail is every repo",
+    t.top.reduce((a, f) => a + f.count, 0) + t.tailRepos, t.total);
+  check("total is the repo count", t.total, FAMS.repos.length);
+  check("repeated families at a threshold of 2", topFamilies(FAMS, 2, 2).repeated, 3);
+  check("repeated families at a threshold of 4", topFamilies(FAMS, 2, 4).repeated, 1);
+  check("asking for more families than exist", topFamilies(FAMS, 99).tailFamilies, 0);
+  check("asking for zero families", topFamilies(FAMS, 0).top.length, 0);
+  check("a zero-N tail is still the whole network", topFamilies(FAMS, 0).tailRepos, 9);
+}
+check("families on an empty snapshot", repoFamilies({}).familyCount, 0);
+check("top families on an empty snapshot", topFamilies({}, 5).top.length, 0);
+check("an empty snapshot has no tail to report", topFamilies({}, 5).tailRepos, 0);
+
+// --- repo activity -------------------------------------------------------
+{
+  // [name, owner, created, updated, stars, fork]
+  const A = {
+    repos: [
+      ["a", 0, 3, 3, 0, 0],   // untouched
+      ["b", 0, 3, 9, 2, 0],   // starred, touched later
+      ["c", 0, 1, 1, 0, 1],   // untouched fork
+      ["d", 0, 0, 4, 0, 0],
+    ],
+  };
+  const act = repoActivity(A);
+  check("activity total", act.total, 4);
+  check("only repos with a star count", act.starred, 1);
+  check("forks counted", act.forked, 1);
+  // Day resolution, not timestamps: same-day equality is the whole test.
+  check("untouched means the update day equals the creation day", act.untouched, 2);
+}
+check("activity on an empty snapshot", repoActivity({}).total, 0);
+check("activity ignores malformed rows", repoActivity({ repos: ["x", null] }).starred, 0);
+
 // --- peers ---------------------------------------------------------------
 {
   const p = sortedPeers(FIX);
@@ -322,6 +432,29 @@ check("non-string repo id", splitRepoId(null).name, "");
   check("snapshot repo series is non-decreasing", r.every((v, i) => i === 0 || v >= r[i - 1]), true);
   check("snapshot agent series is non-decreasing", a.every((v, i) => i === 0 || v >= a[i - 1]), true);
   check("snapshot series length is day_count", r.length, s.day_count);
+
+  // The family grouping against the real names, relationally only. An absolute
+  // "my-first-repo appears 219 times" would red on every refresh, but these hold
+  // for any snapshot and would catch a rule that merged everything into one
+  // bucket or stopped merging at all.
+  const f = topFamilies(s, 12);
+  check("snapshot families do not exceed the repo count", f.familyCount <= s.repos.length, true);
+  check("snapshot names actually repeat", f.familyCount < s.repos.length, true);
+  check("snapshot shown plus tail is every repo",
+    f.top.reduce((a, x) => a + x.count, 0) + f.tailRepos, s.repos.length);
+  check("snapshot singletons cannot exceed the family count", f.singletons <= f.familyCount, true);
+  check("snapshot family rows are sorted descending",
+    f.top.every((x, i) => i === 0 || x.count <= f.top[i - 1].count), true);
+  // The finding the page states: the biggest family is not a rounding error, and
+  // the owner spread is what separates convergence from one account's tooling.
+  check("snapshot has a family of at least ten", f.top[0].count >= 10, true);
+  check("snapshot family owners never exceed the family size",
+    f.top.every((x) => x.owners >= 1 && x.owners <= x.count), true);
+
+  const act = repoActivity(s);
+  check("snapshot activity total is the repo count", act.total, s.repos.length);
+  check("snapshot starred cannot exceed the total", act.starred <= act.total, true);
+  check("snapshot untouched cannot exceed the total", act.untouched <= act.total, true);
 }
 
 console.log(fail === 0 ? "\nall passed" : `\n${fail} FAILED`);

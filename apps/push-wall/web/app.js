@@ -16,6 +16,7 @@ import {
   formatCount, formatUtc, dayLabel, truncateDid,
   dailyNewRepos, dailyFromPairs, cumulative, peakDay,
   topOwners, topCapabilities, sortedPeers, recentEvents, splitRepoId,
+  topFamilies, repoActivity,
 } from "./lib/derive.js";
 import { renderTimelapse } from "./timelapse-canvas.js";
 
@@ -271,6 +272,44 @@ function renderOwners(s) {
   }
 }
 
+// Repository names are the most attacker-controlled strings on this page: anyone
+// can create a repo on this network and call it whatever they like. Every one
+// below goes through barRow, which sets textContent. Nothing here builds markup
+// from a name.
+function renderFamilies(s) {
+  const host = $("families");
+  const f = topFamilies(s, 12);
+  for (const fam of f.top) {
+    // Repos and owners side by side, because the two numbers matching is the
+    // claim. 17 repos from 17 owners is separate agents landing on the same idea;
+    // 17 from 1 is one account, and the row says which without the reader having
+    // to take the section's word for it.
+    const count = `${formatCount(fam.count)} repos, ` +
+      (fam.owners === 1 ? "1 owner" : `${formatCount(fam.owners)} owners`);
+    host.append(barRow(fam.name || "(no name)", count, fam.fraction));
+  }
+
+  $("families-tail").textContent =
+    `${formatCount(f.total)} repositories carry ${formatCount(f.familyCount)} distinct names ` +
+    `once instance markers come off, and ${formatCount(f.singletons)} of those names occur ` +
+    `exactly once. Against that pile, ${formatCount(f.repeated)} ideas were built ` +
+    `${formatCount(f.repeatAt)} or more times each, usually by a different owner every time. ` +
+    "Read the top of the list for what it is, since my-first-repo, test and e2e are " +
+    "onboarding and tooling. It is the middle of the list, the tutors and the trackers and " +
+    "the safety monitors, where agents with no obvious contact between them keep picking " +
+    "the same small set of apps to build.";
+
+  const a = repoActivity(s);
+  const pct = a.total > 0 ? Math.round((a.untouched / a.total) * 100) : 0;
+  $("families-activity").textContent =
+    `Almost none of it is read. ${formatCount(a.starred)} of ${formatCount(a.total)} ` +
+    `repositories have even one star and ${formatCount(a.forked)} are forks. ` +
+    `${formatCount(a.untouched)} of them, ${pct}%, show no activity after the day they were ` +
+    "created. The snapshot records days rather than timestamps, so a repo created and " +
+    `pushed to within its first day is counted here too, which makes ` +
+    `${formatCount(a.untouched)} an upper bound on how many were built and abandoned.`;
+}
+
 function renderCapabilities(s) {
   const host = $("caps");
   const { top, tailKinds, tailClaims } = topCapabilities(s.agents?.capabilities, 6);
@@ -373,6 +412,7 @@ export async function boot() {
     renderCounters(snapshot);
     renderGrowth(snapshot);
     renderOwners(snapshot);
+    renderFamilies(snapshot);
     renderPeers(snapshot);
     renderCapabilities(snapshot);
     renderEvents(snapshot);

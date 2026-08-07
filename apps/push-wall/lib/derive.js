@@ -184,6 +184,131 @@ export function topCapabilities(capabilities, n = 6) {
   };
 }
 
+// --- repository names ----------------------------------------------------
+
+// Repo names on this network are generated, and the same generated idea shows up
+// many times with an instance marker bolted on: my-project, my-project2,
+// e2e-20260318233658, guest-preview-preview-0aa3047e1f. Grouping on the stem is
+// what makes the repetition visible at all.
+//
+// The whole value of the section this feeds is that it does not over-merge, so
+// the rule is deliberately narrow: fold the case, then strip AT MOST ONE trailing
+// suffix. Nothing splits on the first separator, which is what would collapse
+// code-tutor and code-review into "code". Measured on the committed snapshot
+// (3,150 repos): 1,597 families, 1,399 of them a single repo.
+//
+// The three transforms, each kept only because it earns its place on the real
+// data:
+//
+//   case fold      merges 13 real pairs (hello-world/Hello-World, test/TEST,
+//                  myProject/myproject) and merges nothing else.
+//   hex suffix     -a1b2c3d4 style instance ids. Required to contain a digit,
+//                  because [0-9a-f]{6,} with no digit also matches English words
+//                  (facade, decade, deface). Costs nothing on this snapshot: all
+//                  20 hits carry digits.
+//   numeric suffix -1785947444, 2, -03, and the -v2 / -v4 version form, which is
+//                  checked first so image-gen-v4 lands on image-gen rather than
+//                  on the stray stem image-gen-v.
+//
+// One strip, not a loop. Looping would pull e2e-run2-20260318 down to e2e-run and
+// covid19 down to covid, eating digits that are part of the name rather than an
+// instance marker. So e2e-run2 stays its own family and does not join e2e's 25.
+export function repoFamily(name) {
+  const s = (typeof name === "string" ? name : "").trim().toLowerCase();
+  // First match wins and returns, which is what makes this one strip rather than
+  // two: e2e-run2-20260318 stops at e2e-run2 instead of falling through to
+  // e2e-run.
+  const hex = s.match(/^(.*[^-_.])[-_.]([0-9a-f]{6,})$/);
+  if (hex && /\d/.test(hex[2])) return hex[1];
+  // Non-greedy on the version branch so the `v` is consumed, greedy on the plain
+  // branch so only the final run of digits goes. The plain branch also requires a
+  // non-digit before the suffix, which is what leaves an all-digit name (a bare
+  // 1785947444) and an empty name alone instead of reducing them to nothing.
+  const m = s.match(/^(.+?)[-_.]v\d+$/) || s.match(/^(.*[^-_.\d])[-_.]?\d+$/);
+  return m && m[1] ? m[1] : s;
+}
+
+// Every family, biggest first. Ties break on the family name so a snapshot
+// refresh does not shuffle the rows around: 13 families are level at 17 on the
+// current crawl, which is more than enough to make an unstable sort visible.
+export function repoFamilies(snapshot) {
+  const repos = Array.isArray(snapshot?.repos) ? snapshot.repos : [];
+  const counts = new Map();
+  // Distinct owners per family, because the count on its own cannot tell the two
+  // cases apart and they mean opposite things: code-tutor is 17 repos from 17
+  // separate owners, while guest-preview-preview is 17 from one. Only the first
+  // is independent agents converging; the second is one account's tooling.
+  const owners = new Map();
+  for (const r of repos) {
+    const key = repoFamily(Array.isArray(r) ? r[0] : "");
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+    if (!owners.has(key)) owners.set(key, new Set());
+    owners.get(key).add(Array.isArray(r) ? r[1] : undefined);
+  }
+  const families = [...counts].map(([name, count]) => ({
+    name, count, owners: owners.get(name).size,
+  }));
+  families.sort((a, b) => b.count - a.count || (a.name < b.name ? -1 : 1));
+  return {
+    families,
+    total: repos.length,
+    familyCount: families.length,
+    // A family of one is one repo, so this is both a family count and a repo
+    // count. It is the shape of the network: most names occur exactly once.
+    singletons: families.reduce((n, f) => n + (f.count === 1 ? 1 : 0), 0),
+  };
+}
+
+// The top N as display rows, plus what is left over. The tail has to be reported
+// rather than dropped: the interesting claim is that a few ideas repeat, and that
+// only means something next to the size of the pile they repeat against.
+export function topFamilies(snapshot, n = 12, repeatAt = 10) {
+  const { families, total, familyCount, singletons } = repoFamilies(snapshot);
+  const top = families.slice(0, Math.max(0, n));
+  const tail = families.slice(Math.max(0, n));
+  const max = top.length ? top[0].count : 0;
+  return {
+    top: top.map((f) => ({
+      name: f.name,
+      count: f.count,
+      owners: f.owners,
+      fraction: max > 0 ? f.count / max : 0,
+    })),
+    tailFamilies: tail.length,
+    // Sums with the top counts back to `total`, by construction.
+    tailRepos: tail.reduce((a, f) => a + f.count, 0),
+    total,
+    familyCount,
+    singletons,
+    // How many ideas got built repeatedly, at whatever bar the caller sets. 71
+    // families reach 10 on the current snapshot and 36 reach 15, so the
+    // repetition is not just the two onboarding names at the top.
+    repeated: families.reduce((n2, f) => n2 + (f.count >= repeatAt ? 1 : 0), 0),
+    repeatAt,
+  };
+}
+
+// Stars, forks, and repos never touched after the day they appeared.
+//
+// `updated` and `created` are day indexes, not timestamps (see crawl.mjs), so
+// "untouched" here means no activity on a LATER day. A repo created and pushed to
+// twice within its first day reads as untouched. That biases the number upward,
+// and the direction matters when the page quotes it: the true never-touched-again
+// count is at most this one. It was 1,050 of 3,150 on the committed snapshot.
+export function repoActivity(snapshot) {
+  const repos = Array.isArray(snapshot?.repos) ? snapshot.repos : [];
+  let starred = 0;
+  let forked = 0;
+  let untouched = 0;
+  for (const r of repos) {
+    if (!Array.isArray(r)) continue;
+    if (Number.isFinite(r[4]) && r[4] > 0) starred++;
+    if (r[5] === 1) forked++;
+    if (Number.isInteger(r[2]) && r[3] === r[2]) untouched++;
+  }
+  return { total: repos.length, starred, forked, untouched };
+}
+
 // --- peers ---------------------------------------------------------------
 
 // Reachable first, then by label, so the 16 that answer are not scattered
