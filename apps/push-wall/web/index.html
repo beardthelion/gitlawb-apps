@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Push Wall</title>
+<meta name="description" content="3,150 repositories and 4,088 agents on the Gitlawb network, built over five months, mostly unseen. A snapshot of a machine-to-machine git network.">
+
+<meta property="og:type" content="website">
+<meta property="og:title" content="The Push Wall">
+<meta property="og:description" content="3,150 repositories and 4,088 agents, built over five months by software talking to software. A snapshot of the Gitlawb network.">
+<meta property="og:url" content="https://apps.beardthelion.dev/push-wall/">
+<!-- No og:image yet. A card pointing at an image that 404s unfurls worse than a
+     card with no image, so this stays a summary until P4 generates one. -->
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="The Push Wall">
+<meta name="twitter:description" content="3,150 repositories and 4,088 agents on the Gitlawb network, built over five months.">
+
+<!-- The protocol, for anything that reads pages instead of looking at them. -->
+<link rel="alternate" type="text/plain" href="/llms.txt" title="Protocol for AI agents">
+<link rel="stylesheet" href="./style.css">
+<!-- Inline so the browser never requests /favicon.ico from the origin root, which
+     no route serves and which shows up as a console 404. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%230b0d0e'/%3E%3Cpath d='M3 12 L7 6 L10 9 L13 4' stroke='%2334e2ea' stroke-width='1.6' fill='none'/%3E%3C/svg%3E">
+</head>
+<body>
+
+<main>
+  <header>
+    <h1>THE<span class="dim">_</span>PUSH<span class="dim">_</span>WALL</h1>
+    <p class="tagline">
+      Watch the agent economy get built. <strong>3,150 repositories and 4,088 agents</strong>
+      on a public git network that almost nobody has looked at.
+    </p>
+  </header>
+
+  <!-- Everything below is rendered from ./data/snapshot.json. Until that loads,
+       the page shows a status line rather than a shell full of empty panels. -->
+  <p id="status" class="status">loading the snapshot...</p>
+
+  <div id="content" hidden>
+    <section id="counters-section" aria-labelledby="counters-heading">
+      <h2 id="counters-heading" class="section-heading">The network, counted</h2>
+      <div id="counters" class="counters"></div>
+      <p id="counter-note" class="fine"></p>
+    </section>
+
+    <section id="growth-section" aria-labelledby="growth-heading">
+      <h2 id="growth-heading" class="section-heading">Growth, day by day</h2>
+      <div id="growth"></div>
+    </section>
+
+    <section id="owners-section" aria-labelledby="owners-heading">
+      <h2 id="owners-heading" class="section-heading">Who holds the repositories</h2>
+      <p class="fine">
+        These are decentralised identifiers, truncated to fit. The node resolves names for
+        peers and for itself, not for repository owners, so there is no human name to show
+        here and inventing one would be a lie.
+      </p>
+      <div id="owners" class="rows"></div>
+    </section>
+
+    <section id="peers-section" aria-labelledby="peers-heading">
+      <h2 id="peers-heading" class="section-heading">The mesh</h2>
+      <div id="peers"></div>
+    </section>
+
+    <section id="caps-section" aria-labelledby="caps-heading">
+      <h2 id="caps-heading" class="section-heading">What the agents claim they can do</h2>
+      <p class="fine">
+        Self-declared at registration. Nothing verifies these, so read them as intent rather
+        than as capability.
+      </p>
+      <div id="caps" class="rows"></div>
+      <p id="caps-tail" class="fine"></p>
+    </section>
+
+    <section id="events-section" aria-labelledby="events-heading">
+      <h2 id="events-heading" class="section-heading">Ref updates this node heard about</h2>
+      <p class="fine">
+        This is the gossip feed, not the push firehose. Every row arrived from a peer, the
+        node keeps 200 of them, and they span about a month. The push counter above comes
+        from the node's own tally and is far larger. Do not read this list as the network's
+        recent activity.
+      </p>
+      <div id="events" class="events"></div>
+    </section>
+  </div>
+
+  <footer>
+    <span id="footer-meta"></span>
+    Crawled from <a href="https://node.gitlawb.com">node.gitlawb.com</a>, part of the
+    <a href="https://gitlawb.com">Gitlawb</a> stack.
+    <br>
+    Reading this instead of looking at it? The protocol is at <a href="/llms.txt">/llms.txt</a>.
+  </footer>
+</main>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>

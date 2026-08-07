@@ -5,7 +5,7 @@
 // Routes mirror worker/index.js so a thing that works here works in production.
 
 import { createServer } from "node:http";
-import { readFile, stat } from "node:fs/promises";
+import { readFile, stat, readdir } from "node:fs/promises";
 import { join, extname, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
@@ -25,12 +25,16 @@ const TYPES = {
   ".ico": "image/x-icon",
 };
 
-// URL prefix -> directory on disk. Matches the layout build.mjs writes to dist/,
-// which is what the worker serves.
-const MOUNTS = [
-  ["/beat-the-bot/lib/", "apps/beat-the-bot/lib/"],
-  ["/beat-the-bot/", "apps/beat-the-bot/web/"],
-];
+// URL prefix -> directory on disk. Derived from apps/ the same way build.mjs
+// derives dist/, so adding an app cannot leave the dev server serving 404s for
+// a page that ships fine. lib/ is listed first because the longer prefix has to
+// win the match.
+const MOUNTS = (await readdir(join(ROOT, "apps"), { withFileTypes: true }))
+  .filter((e) => e.isDirectory())
+  .flatMap((e) => [
+    [`/${e.name}/lib/`, `apps/${e.name}/lib/`],
+    [`/${e.name}/`, `apps/${e.name}/web/`],
+  ]);
 
 function resolveStatic(pathname) {
   for (const [prefix, dir] of MOUNTS) {
