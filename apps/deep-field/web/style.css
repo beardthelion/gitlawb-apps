@@ -167,6 +167,112 @@ section { margin-top: 2.6rem; }
 }
 .tl-button:hover { border-color: var(--accent); color: var(--accent); }
 .tl-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* flex-wrap and no fixed width, so three buttons stack instead of pushing the
+   panel sideways at 360px. */
+.tl-controls { flex-wrap: wrap; }
+
+/* --- live mode --------------------------------------------------------- */
+
+.tl-live {
+  margin-top: 0.9rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--line);
+}
+
+.tl-live-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem 0.7rem;
+}
+
+/* The chip states carry their own word as well as their own colour, so the
+   difference between live and not connected survives greyscale. */
+.tl-live-state {
+  flex: none;
+  font-size: 0.66rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  padding: 0.1rem 0.45rem;
+  color: var(--dim);
+}
+.tl-live-state.up { color: var(--win); border-color: #23502f; }
+.tl-live-state.down { color: var(--lose); border-color: #5a2a26; }
+
+/* The one line that answers "is this working". Sized up because the whole
+   panel is usually reporting that nothing has happened, and that sentence is
+   the content rather than the caveat. */
+.tl-live-headline {
+  font-size: 1.05rem;
+  color: var(--fg);
+  overflow-wrap: anywhere;
+}
+.tl-live-state.down + .tl-live-headline { color: var(--lose); }
+
+.tl-live-sub {
+  margin: 0.25rem 0 0;
+  font-size: 0.78rem;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+.tl-live-sub:empty { display: none; }
+
+.tl-live-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.6rem;
+  margin-top: 0.7rem;
+}
+.tl-live-cell { display: flex; flex-direction: column; min-width: 0; }
+.tl-live-value {
+  font-size: 1.1rem;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.25;
+}
+.tl-live-label {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--dim);
+}
+.tl-live-delta { font-size: 0.72rem; color: var(--accent2); }
+
+.tl-live-note {
+  margin: 0.7rem 0 0;
+  font-size: 0.8rem;
+  color: var(--dim);
+  border-left: 2px solid var(--line);
+  padding-left: 0.8rem;
+}
+.tl-live-note:empty { display: none; }
+
+.tl-live-feed { display: flex; flex-direction: column; margin-top: 0.7rem; }
+.tl-live-row {
+  display: grid;
+  grid-template-columns: 3.2rem minmax(0, 1fr);
+  gap: 0.1rem 0.6rem;
+  padding: 0.35rem 0;
+  border-top: 1px solid #161c1e;
+  font-size: 0.82rem;
+}
+.tl-live-kind {
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  padding: 0.05rem 0.25rem;
+  text-align: center;
+  color: var(--accent2);
+  align-self: start;
+}
+.tl-live-kind.new { color: var(--accent); border-color: #1d4a4d; }
+.tl-live-name { overflow-wrap: anywhere; }
+.tl-live-meta { grid-column: 2; font-size: 0.74rem; color: var(--dim); overflow-wrap: anywhere; }
+.tl-live-empty { margin: 0; font-size: 0.8rem; color: var(--dim); }
 
 /* --- chart ------------------------------------------------------------- */
 

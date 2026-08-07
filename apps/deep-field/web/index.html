@@ -66,6 +66,26 @@
         <div class="tl-controls">
           <button type="button" id="tl-play" class="tl-button">play</button>
           <button type="button" id="tl-restart" class="tl-button">restart</button>
+          <!-- Carries the mode: "skip to live" during the replay, "replay" once
+               the canvas is following the network. -->
+          <button type="button" id="tl-mode" class="tl-button">skip to live</button>
+        </div>
+
+        <!-- Live mode. Hidden until the replay reaches today or the visitor
+             skips ahead. Every value inside is written from JS as textContent;
+             the empty containers here are only the shape. -->
+        <div id="tl-live" class="tl-live" hidden>
+          <div class="tl-live-head">
+            <span id="tl-live-state" class="tl-live-state waiting">connecting</span>
+            <span id="tl-live-headline" class="tl-live-headline"></span>
+          </div>
+          <p id="tl-live-sub" class="tl-live-sub"></p>
+          <div id="tl-live-counts" class="tl-live-counts"></div>
+          <!-- Polite rather than assertive, and only on the sentence that
+               changes when the state changes. The ages above tick every second
+               and would otherwise be read out continuously. -->
+          <p id="tl-live-note" class="tl-live-note" role="status" aria-live="polite"></p>
+          <div id="tl-live-feed" class="tl-live-feed"></div>
         </div>
       </div>
       <p id="tl-alt" class="fine"></p>

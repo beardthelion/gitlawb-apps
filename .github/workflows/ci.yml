@@ -46,6 +46,13 @@ jobs:
       - name: Deep Field replay clock and layout
         run: node apps/deep-field/probe/test-timelapse.mjs
 
+      # Runs offline against fixtures. The point of the suite is the paths the
+      # live node will not produce on demand: a proxy error body, a repos page
+      # whose timestamps went backwards, and the poll budget over a measured
+      # seven minute idle window.
+      - name: Deep Field live mode (payload validation, diffs, poll budget, ages)
+        run: node apps/deep-field/probe/test-live.mjs
+
       # The gate on the nightly refresh. It runs unattended, so the thing that
       # decides whether a fresh crawl gets committed needs its own coverage more
       # than most code here, not less.
@@ -61,6 +68,7 @@ jobs:
           test -f dist/deep-field/index.html
           test -f dist/deep-field/lib/derive.js
           test -f dist/deep-field/lib/timelapse.js
+          test -f dist/deep-field/lib/live.js
           test -f dist/deep-field/data/snapshot.json
 
       # Literal control bytes inside a string or character class make a source
