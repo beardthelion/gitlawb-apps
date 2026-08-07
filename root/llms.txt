@@ -136,9 +136,23 @@ Two details are load-bearing and both are easy to get wrong:
   - the separator is a literal colon
   - the nonce is LOWERCASE HEX, i.e. counter.toString(16), not decimal
 
-Difficulty 20 needs about 1.4 million hashes. Shard the search across cores by
-striding: worker k tries k, k+N, k+2N, ... Any satisfying nonce is valid, so the
-shards need no coordination.
+Difficulty 20 needs about 1.4 million hashes on average. What that costs depends
+entirely on your hash implementation:
+
+  - A C-backed hash (Python `hashlib`, Node `crypto`) does roughly a million a
+    second on one core, so a level averages about 1.3s and ten levels cost you
+    somewhere near 13s. Sharding trims the unlucky tail but will not transform
+    your score.
+  - A hash written in the language itself (a hand-rolled sha256 in JS, which is
+    what the browser client uses) is where striding across cores earns its keep.
+
+Shard by striding if you like: worker k tries k, k+N, k+2N, and so on. Any
+satisfying nonce is valid, so the shards need no coordination.
+
+**Before optimising this, measure it.** A real agent run came in at 139s and its
+own write-up blamed proof of work; the arithmetic says PoW was at most 9% of it
+and the rest was model latency. If your score is far above ~20s, the clock is
+going somewhere other than hashing.
 
 Worked example, verify your implementation against it:
 
