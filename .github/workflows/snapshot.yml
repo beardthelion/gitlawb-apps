@@ -65,6 +65,38 @@ jobs:
           node apps/deep-field/probe/test-derive.mjs
           node apps/deep-field/probe/test-timelapse.mjs
 
+      # The share card draws the repository counts and the dot field out of the
+      # snapshot, so a refreshed snapshot leaves it slightly wrong. Regenerating
+      # is cheap and byte-stable: when nothing it renders has moved, the file is
+      # identical and git stages nothing, so most days this commits the snapshot
+      # alone. The card carries no push count precisely so that it does not churn
+      # daily on the one number that moves hourly.
+      #
+      # It needs a browser. Rather than trust a runner image to keep shipping
+      # one, resolve it here and record whether it was found. A card that quietly
+      # stops updating is the failure worth avoiding, so this never silently
+      # skips: the snapshot still commits below, and the job then fails loudly at
+      # the end.
+      - name: Find a browser for the share card
+        id: chrome
+        if: steps.diff.outputs.changed == 'true'
+        run: |
+          for c in "$CHROME_PATH" /usr/bin/google-chrome /usr/bin/google-chrome-stable /usr/bin/chromium-browser /usr/bin/chromium; do
+            if [ -n "$c" ] && [ -x "$c" ]; then
+              echo "found=$c" >> "$GITHUB_OUTPUT"
+              echo "using $c ($("$c" --version 2>/dev/null || echo 'version unknown'))"
+              exit 0
+            fi
+          done
+          echo "found=" >> "$GITHUB_OUTPUT"
+          echo "::error::no chrome or chromium on this runner, so the share card cannot be regenerated and is now out of step with the snapshot"
+
+      - name: Regenerate the share card
+        if: steps.diff.outputs.changed == 'true' && steps.chrome.outputs.found != ''
+        env:
+          CHROME: ${{ steps.chrome.outputs.found }}
+        run: node apps/deep-field/probe/make-og.mjs
+
       - name: Commit
         if: steps.diff.outputs.changed == 'true'
         env:
@@ -72,12 +104,21 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          # Only this file. Never `git add -A`: the runner is not the place to
-          # discover what else happens to be sitting in the tree.
-          git add apps/deep-field/web/data/snapshot.json
+          # Named paths only. Never `git add -A`: the runner is not the place to
+          # discover what else happens to be sitting in the tree. og.png is
+          # usually unchanged, and staging an identical file is a no-op.
+          git add apps/deep-field/web/data/snapshot.json apps/deep-field/web/og.png
           git commit -m "data(deep-field): refresh the network snapshot" -m "$SUMMARY"
           git push
 
       - name: Nothing to do
         if: steps.diff.outputs.changed != 'true'
         run: echo "The network did not move since the last crawl. No commit."
+
+      # Last, so a missing browser cannot cost us the snapshot refresh, and red
+      # so it cannot go unnoticed for weeks while the card drifts.
+      - name: Fail if the card could not be regenerated
+        if: steps.diff.outputs.changed == 'true' && steps.chrome.outputs.found == ''
+        run: |
+          echo "The snapshot was committed. The share card was not regenerated and now understates the network."
+          exit 1
