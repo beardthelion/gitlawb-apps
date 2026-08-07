@@ -116,8 +116,14 @@ if (!repoCreated.length) die("no repo carried a parseable created_at");
 // instead of being clamped, and the crawl says so when the base moves.
 const agentRegistered = agentRows.map((a) => ms(a.registered_at)).filter((t) => t !== null);
 const peerSeen = peerRows.map((p) => ms(p.last_seen)).filter((t) => t !== null);
-const earliestRepo = Math.min(...repoCreated);
-const baseMs = utcMidnight(Math.min(earliestRepo, ...agentRegistered, ...peerSeen));
+// Folded rather than spread. Math.min(...xs) passes one argument per element, and
+// that blows the call stack somewhere in the low hundreds of thousands: measured,
+// 4,088 agents is fine and 200,000 throws RangeError. This is the one place in
+// the crawl whose input size is the network's size rather than a page of it.
+const least = (xs) => xs.reduce((a, b) => (b < a ? b : a), Infinity);
+
+const earliestRepo = least(repoCreated);
+const baseMs = utcMidnight(Math.min(earliestRepo, least(agentRegistered), least(peerSeen)));
 if (baseMs !== utcMidnight(earliestRepo)) {
   console.log(`  day_base pulled back to ${isoDay(baseMs)} (earliest repo is ${isoDay(earliestRepo)})`);
 }

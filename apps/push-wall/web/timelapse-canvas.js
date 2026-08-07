@@ -271,8 +271,18 @@ export function renderTimelapse(snapshot) {
     setPlayLabel();
   };
 
-  playBtn.addEventListener("click", () => (playing ? pause() : play()));
-  restartBtn.addEventListener("click", () => { reset(); play(); });
+  // Autoplay fires once, when the section first reaches the viewport. Anyone who
+  // touched the controls has already started the replay themselves, so this flag
+  // has to be set here too. Without it, clicking play while the section is still
+  // below the autoplay threshold and watching the run finish gets you a second,
+  // unrequested replay the moment you scroll down to it.
+  let started = false;
+
+  playBtn.addEventListener("click", () => {
+    started = true;
+    if (playing) pause(); else play();
+  });
+  restartBtn.addEventListener("click", () => { started = true; reset(); play(); });
 
   resize();
   if (typeof ResizeObserver === "function") {
@@ -291,7 +301,6 @@ export function renderTimelapse(snapshot) {
   // Autoplay only once the section is actually on screen. A 35 second replay
   // that finished while the visitor was still reading the counters is a demo
   // nobody saw.
-  let started = false;
   const start = () => {
     if (started) return;
     started = true;

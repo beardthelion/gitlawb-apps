@@ -64,7 +64,7 @@ export function formatUtc(iso) {
 export function truncateDid(did, head = 12, tail = 6) {
   const s = typeof did === "string" ? did : "";
   if (s.length <= head + tail + 1) return s;
-  return `${s.slice(0, head)}…${s.slice(-tail)}`;
+  return `${s.slice(0, head)}...${s.slice(-tail)}`;
 }
 
 // --- day series ----------------------------------------------------------
@@ -203,9 +203,14 @@ export function sortedPeers(snapshot) {
 //
 // Runs of the same repo and ref collapse into one row carrying a count. The 200
 // rows in the snapshot cover only 10 distinct repos, and one of them accounts
-// for 163 of them, so an uncollapsed list is a dozen copies of the same line and
-// says less about the network than four collapsed rows do. The count keeps it
-// honest: nothing is dropped, it is summed.
+// for 163 of them, so an uncollapsed list is a dozen copies of the same line.
+// Collapsing is what gets several distinct repos into the same dozen rows.
+//
+// Measured, so the effect is not overstated: 200 events collapse to 174 rows,
+// because the feed interleaves rather than arriving in clean per-repo blocks,
+// and the twelve rows the page renders cover 38 of the 200 events. Each row's
+// count is exact for its own run; the page is showing the most recent rows, not
+// a summary of the whole feed.
 export function recentEvents(snapshot, n = 12) {
   const rows = Array.isArray(snapshot?.events) ? snapshot.events : [];
   const sorted = rows

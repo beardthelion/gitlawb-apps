@@ -7,6 +7,9 @@
 // silently wrong time-lapse. Every property the page is allowed to assume is
 // asserted here against the committed file, including the two the crawler builds
 // rather than copies: the repo sort by creation day, and the owner ordering.
+//
+// This is also the one file that pins this crawl's absolute numbers, and the one
+// that bounds them. A refresh means editing the four lines at the bottom.
 
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -93,6 +96,48 @@ check("event create flags are 0 or 1", s.events.every((e) => e[3] === 0 || e[3] 
 check("pusher short ids are at most 8 chars", s.events.every((e) => e[1].length <= 8), true);
 check("no duplicate repo+timestamp event",
   new Set(s.events.map((e) => `${e[0]}@${e[4]}`)).size, s.events.length);
+
+// --- bounds --------------------------------------------------------------
+// Everything above says the snapshot is well formed, which a badly wrong crawl
+// can also be. day_count is the one that hurts: the growth chart builds an SVG
+// path with one point per day, so a snapshot claiming a million days is valid by
+// every check above and locks the browser for minutes before it draws anything.
+// The strings are the same idea, one order of magnitude down. These are guards
+// against a bad crawl of our own node, not against an attacker; the file is
+// committed and served from the same repo as the page.
+//
+// The caps are far above today's crawl on purpose, so they fire on nonsense and
+// never on growth. Today's values are in the comments; anything approaching a cap
+// means the crawler changed shape and the page's rendering needs a look, not that
+// the cap needs raising.
+const under = (name, value, cap) => check(`${name} (cap ${cap})`, value <= cap, true);
+const longest = (arr, of) => arr.reduce((m, v) => Math.max(m, of(v).length), 0);
+
+under("day_count", s.day_count, 5000);                       // 149 days today, so ~13 years of headroom
+under("owners", s.owners.length, 200_000);                   // 1,357 today
+under("peer rows", s.peers.rows.length, 10_000);             // 73 today
+under("capability kinds", s.agents.capabilities.length, 1000); // 27 today
+
+under("longest repo name", longest(s.repos, (r) => r[0]), 256);            // 63 today
+under("longest owner did", longest(s.owners, (o) => o), 256);              // 56 today, did:key is fixed width
+under("longest capability", longest(s.agents.capabilities, (c) => c[0]), 128); // 30 today
+under("longest peer label", longest(s.peers.rows, (r) => r[0]), 256);      // 34 today
+under("longest ref name", longest(s.events, (e) => e[2]), 256);            // 20 today
+under("longest event repo id", longest(s.events, (e) => e[0]), 512);       // 80 today, a did plus a name
+
+// --- the committed crawl -------------------------------------------------
+// The only absolute numbers in the three suites. test-derive.mjs and
+// test-timelapse.mjs used to carry copies, which meant re-running crawl.mjs (the
+// point of crawl.mjs) reddened nine assertions that had nothing to say about the
+// totals. They now compare the snapshot against its own independent fields, and a
+// refresh is these four lines. Skipped when a path is passed, since a candidate
+// snapshot is exactly the thing that has not been pinned yet.
+if (process.argv[2] === undefined) {
+  check("committed crawl: repos", s.repos.length, 3150);
+  check("committed crawl: owners", s.owners.length, 1357);
+  check("committed crawl: agents", s.agents.total, 4088);
+  check("committed crawl: days", s.day_count, 149);
+}
 
 console.log(fail === 0
   ? `\nall passed: ${s.repos.length} repos, ${s.owners.length} owners, ${s.agents.total} agents, ${s.peers.count} peers, ${s.events.length} events over ${s.day_count} days`

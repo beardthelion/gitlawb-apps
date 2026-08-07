@@ -10,7 +10,8 @@
 // every dot lands in bounds near its owner.
 //
 // Small fixtures first, where the arithmetic can be checked by eye, then the
-// committed snapshot to pin the totals the page prints.
+// committed snapshot, checked against its own independent fields rather than
+// against numbers copied out of one particular crawl.
 
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -28,8 +29,26 @@ const check = (name, got, want) => {
   console.log(`${ok ? "PASS" : "FAIL"}  ${name}${ok ? "" : `\n      got ${JSON.stringify(got)} want ${JSON.stringify(want)}`}`);
 };
 
+// An optional path argument, matching test-snapshot.mjs, so a candidate snapshot
+// can be checked before it is committed. Nothing below pins an absolute value out
+// of this crawl: those live in test-snapshot.mjs alone, and every assertion here
+// compares the replay against a field of the snapshot it did not come from.
 const HERE = dirname(fileURLToPath(import.meta.url));
-const SNAP = JSON.parse(readFileSync(join(HERE, "..", "web", "data", "snapshot.json"), "utf8"));
+const SNAP_PATH = process.argv[2] ?? join(HERE, "..", "web", "data", "snapshot.json");
+const SNAP = JSON.parse(readFileSync(SNAP_PATH, "utf8"));
+
+// The busiest day and the biggest owner, tallied straight off the rows so the
+// assertions that name them move with a refreshed crawl instead of reddening.
+// Ties go to the earlier day, matching the scan the schedule assertions use.
+const ACTIVITY = new Array(SNAP.day_count).fill(0);
+for (const r of SNAP.repos) if (r[2] >= 0 && r[2] < SNAP.day_count) ACTIVITY[r[2]]++;
+for (const [d, n] of SNAP.agents.daily) if (d >= 0 && d < SNAP.day_count) ACTIVITY[d] += n;
+let BUSIEST_DAY = 0;
+for (let d = 1; d < ACTIVITY.length; d++) if (ACTIVITY[d] > ACTIVITY[BUSIEST_DAY]) BUSIEST_DAY = d;
+
+const OWNER_TALLY = new Array(SNAP.owners.length).fill(0);
+for (const r of SNAP.repos) OWNER_TALLY[r[1]]++;
+const BIGGEST_OWNER_COUNT = OWNER_TALLY.reduce((m, v) => Math.max(m, v), 0);
 
 // A five-day fixture. Day 1 is the burst, day 2 and day 3 are empty, day 4 is
 // the final index and carries arrivals, so "the last day gets played" is a real
@@ -132,7 +151,9 @@ const FIX = {
   const uniformMs = DEFAULT_DURATION_MS / s.dayCount;
   console.log(`      busiest day ${busiest} = ${busyMs.toFixed(0)}ms, quietest = ${quietMs.toFixed(0)}ms, uniform would be ${uniformMs.toFixed(0)}ms`);
 
-  check("the busiest day is the 978-repo day", busiest, 1);
+  // Two independent scans of the same fact: this one walks the schedule the code
+  // built, ACTIVITY walks the snapshot rows directly.
+  check("the busiest day of the schedule is the busiest day in the rows", busiest, BUSIEST_DAY);
   check("the quietest day has no activity at all", s.dailyRepos[quietest] + s.dailyAgents[quietest], 0);
   check("the busiest day gets over a second", busyMs > 1000, true);
   check("the busiest day does not eat the run", busyMs < 0.10 * DEFAULT_DURATION_MS, true);
@@ -147,10 +168,17 @@ const FIX = {
 {
   const tl = createTimelapse(SNAP);
   const end = tl.stateAt(1);
-  check("final frame repos equal the snapshot total", end.repos, 3150);
-  check("final frame agents equal the snapshot total", end.agents, 4088);
+  // The replay's totals come out of the per-day histograms; repos.length and the
+  // stats block are two other fields entirely, one a row count and one a counter
+  // the crawler copied off the node's API. Comparing them is still a cross-check,
+  // it just no longer hardcodes which crawl is loaded.
+  check("final frame repos equal the row count", end.repos, SNAP.repos.length);
+  check("final frame agents equal the node's own counter", end.agents, SNAP.stats.agents);
   check("final frame is the last day", end.dayIndex, SNAP.day_count - 1);
-  check("the snapshot's own stats agree", `${SNAP.stats.repos}/${SNAP.stats.agents}`, "3150/4088");
+  // Not an equality: a push landing between crawl pages can cost or duplicate a
+  // row, and 5 is the slack test-snapshot.mjs allows for that same race.
+  check("the snapshot's own repo counter agrees with the replay",
+    Math.abs(SNAP.stats.repos - end.repos) <= 5, true);
   // Coverage is asserted separately from the totals on purpose. The snapshot's
   // final day happens to be empty, so a schedule that stopped a day short would
   // still end on 3,150 and 4,088 and look correct. The day count is what catches
@@ -172,18 +200,18 @@ const FIX = {
     }
     prev = p;
   }
-  check("every repo arrives exactly once over a full replay", arrived.size, 3150);
+  check("every repo arrives exactly once over a full replay", arrived.size, SNAP.repos.length);
   check("no repo arrives twice", duplicates, 0);
   check("the first arrival is the first repo in day order", tl.order[0], 0);
-  check("arrivals over the whole run equal the totals", tl.arrivalsBetween(0, 1).length, 3150);
+  check("arrivals over the whole run equal the totals", tl.arrivalsBetween(0, 1).length, SNAP.repos.length);
   check("no arrivals when progress does not move", tl.arrivalsBetween(0.5, 0.5).length, 0);
 }
 
 // --- the layout -----------------------------------------------------------
 {
   const l = buildLayout(SNAP);
-  check("a position for every repo", l.repoCount, 3150);
-  check("positions array is two per repo", l.positions.length, 6300);
+  check("a position for every repo", l.repoCount, SNAP.repos.length);
+  check("positions array is two per repo", l.positions.length, SNAP.repos.length * 2);
 
   let outOfBounds = 0;
   for (let i = 0; i < l.positions.length; i++) {
@@ -237,10 +265,12 @@ const FIX = {
   console.log(`      mean distance to a stranger's centre ${shuffledMean.toFixed(4)}`);
   check("clusters are far apart relative to their own size", shuffledMean / mean > 8, true);
 
-  // The 114-repo owner must be a readable cluster, not a point and not a smear.
+  // The biggest owner (114 repos in the committed crawl) must be a readable
+  // cluster, not a point and not a smear.
   let biggest = 0;
   for (let i = 1; i < l.counts.length; i++) if (l.counts[i] > l.counts[biggest]) biggest = i;
-  check("the biggest owner holds 114 repos", l.counts[biggest], 114);
+  check("the biggest owner cluster holds every repo that owner has",
+    l.counts[biggest], BIGGEST_OWNER_COUNT);
   let bigWorst = 0;
   for (let i = 0; i < SNAP.repos.length; i++) {
     if (SNAP.repos[i][1] !== biggest) continue;
@@ -265,6 +295,59 @@ const FIX = {
   check("repo name is readable back", tl.nameOf(0), "a");
   check("an out-of-range repo name is empty", tl.nameOf(99), "");
   check("an out-of-range position falls back to the middle", tl.positionOf(99).x, 0.5);
+}
+
+// --- a snapshot that does not arrive pre-sorted ---------------------------
+// Every other fixture here, and the committed snapshot, already ship in creation
+// order, so the sort inside arrivalOrder is invisible to them: deleting it left
+// all three suites green. These rows are deliberately shuffled, and without the
+// sort the replay draws a dot on a day earlier than the repo's own.
+{
+  const OUT = {
+    day_base: "2026-03-12",
+    day_count: 4,
+    owners: ["did:key:zOwnerA"],
+    repos: [repo("late", 0, 3), repo("early", 0, 0), repo("mid", 0, 2), repo("first", 0, 0)],
+    agents: { daily: [] },
+  };
+  const tl = createTimelapse(OUT, { durationMs: 1000 });
+  check("shuffled repos replay in day order",
+    tl.order.map((i) => OUT.repos[i][0]).join(","), "early,first,mid,late");
+  check("a same-day pair keeps snapshot order",
+    tl.order.indexOf(1) < tl.order.indexOf(3), true);
+  check("no arrival day precedes the one before it",
+    tl.order.every((v, k) => k === 0 || OUT.repos[tl.order[k - 1]][2] <= OUT.repos[v][2]), true);
+}
+
+// --- a creation day outside the range -------------------------------------
+// dailyNewRepos drops a repo whose created day is not an integer in
+// [0, day_count), so the arrival order has to drop the same rows or the two stop
+// agreeing and arrivalsBetween slices a list of one length against counts of
+// another. Both cases below were reproduced against the unfixed code: day_count 3
+// with a repo on day 5 ended the replay showing 2 of 3 dots, and a repo on day -1
+// painted the wrong dots and never painted the last real repo.
+{
+  const cases = [
+    ["a day past the last", [repo("a", 0, 0), repo("b", 0, 1), repo("x", 0, 5)]],
+    ["a negative day", [repo("x", 0, -1), repo("a", 0, 0), repo("b", 0, 1)]],
+  ];
+  for (const [name, repos] of cases) {
+    const snap = {
+      day_base: "2026-03-12", day_count: 3, owners: ["did:key:zOwnerA"],
+      repos, agents: { daily: [] },
+    };
+    const tl = createTimelapse(snap, { durationMs: 1000 });
+    const painted = tl.arrivalsBetween(0, 1);
+    const inRange = (i) => Number.isInteger(repos[i][2]) && repos[i][2] >= 0 && repos[i][2] < 3;
+    check(`${name}: the final frame counts only what the histogram kept`, tl.stateAt(1).repos, 2);
+    check(`${name}: the arrival order is exactly that long`, tl.order.length, tl.stateAt(1).repos);
+    check(`${name}: the replay paints as many dots as the final frame claims`,
+      painted.length, tl.stateAt(1).repos);
+    check(`${name}: no index in the order is a repo the histogram dropped`,
+      tl.order.every(inRange), true);
+    check(`${name}: the last in-range repo still gets painted`,
+      painted.includes(repos.findIndex((r) => r[0] === "b")), true);
+  }
 }
 
 // --- degenerate inputs ----------------------------------------------------

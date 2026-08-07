@@ -223,28 +223,35 @@ export function buildLayout(snapshot, seed = 0x5eed1e) {
 // The snapshot already ships in that order, but sorting here means a snapshot
 // that does not cannot silently produce a replay where dots appear before their
 // day.
-function arrivalOrder(repos) {
+//
+// dailyNewRepos is authoritative on which repos exist, not this function. Its
+// counts become the cumulative series, and arrivalsBetween slices `order` against
+// that series, so a row the histogram refuses has to be refused here too or the
+// two lists index past each other. Measured on the version without the filter:
+// day_count 3 with repos on days 0, 1 and 5 ended the replay showing 2 of 3 dots,
+// and a repo on day -1 (which the old `dayOf` quietly filed under day 0) painted
+// the wrong dots and never painted the last real repo.
+function arrivalOrder(repos, dayCount) {
   const n = Array.isArray(repos) ? repos.length : 0;
-  const order = new Array(n);
-  for (let i = 0; i < n; i++) order[i] = i;
-  order.sort((a, b) => {
-    const da = dayOf(repos[a]);
-    const db = dayOf(repos[b]);
-    return da - db || a - b;
-  });
+  const order = [];
+  for (let i = 0; i < n; i++) {
+    const d = dayOf(repos[i]);
+    if (d !== null && d < dayCount) order.push(i);
+  }
+  order.sort((a, b) => dayOf(repos[a]) - dayOf(repos[b]) || a - b);
   return order;
 }
 
 const dayOf = (row) => {
   const d = Array.isArray(row) ? row[2] : undefined;
-  return Number.isInteger(d) ? d : 0;
+  return Number.isInteger(d) && d >= 0 ? d : null;
 };
 
 export function createTimelapse(snapshot, { durationMs = DEFAULT_DURATION_MS, seed = 0x5eed1e } = {}) {
   const schedule = buildSchedule(snapshot, durationMs);
   const layout = buildLayout(snapshot, seed);
   const repos = Array.isArray(snapshot?.repos) ? snapshot.repos : [];
-  const order = arrivalOrder(repos);
+  const order = arrivalOrder(repos, schedule.dayCount);
 
   // Within a day, arrivals spread across that day's slot instead of landing in
   // one frame. On the 978-repo day that is the difference between a wall of dots

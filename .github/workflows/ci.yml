@@ -48,6 +48,7 @@ jobs:
           test -f dist/beat-the-bot/index.html
           test -f dist/beat-the-bot/lib/pow-fast.js
           test -f dist/push-wall/index.html
+          test -f dist/push-wall/lib/derive.js
           test -f dist/push-wall/lib/timelapse.js
           test -f dist/push-wall/data/snapshot.json
 
@@ -64,6 +65,10 @@ jobs:
         run: |
           fail=0
           for f in $(git ls-files '*.js' '*.mjs' '*.json' '*.md' '*.sql' '*.html' '*.css' '*.txt' '*.yml'); do
+            # A zero-byte file has no encoding to detect and file(1) calls it
+            # binary, so it has to be skipped explicitly. It also cannot contain
+            # the stray control byte this gate exists to find.
+            [ -s "$f" ] || continue
             if [ "$(file --mime-encoding -b "$f")" = "binary" ]; then
               echo "::error file=$f::reads as binary, likely a literal control byte; use an escape"
               fail=1
