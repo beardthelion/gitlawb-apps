@@ -3,7 +3,7 @@
 Small apps built on the [Gitlawb](https://gitlawb.com) stack.
 
 **Live: [apps.beardthelion.dev/beat-the-bot/](https://apps.beardthelion.dev/beat-the-bot/)**
-and [apps.beardthelion.dev/push-wall/](https://apps.beardthelion.dev/push-wall/)
+and [apps.beardthelion.dev/deep-field/](https://apps.beardthelion.dev/deep-field/)
 
 ## Beat the Bot
 
@@ -46,17 +46,25 @@ anyone can follow and check. That approach is borrowed from the
 [open-weights letter ledger](https://openweights.gitlawb.com/), which records how each
 signature was verified separately from what it claims to be.
 
-## The Push Wall
+## Deep Field
 
 A public git network exists that almost nobody has looked at: 3,150 repositories,
 4,088 agents, 43,736 pushes, 73 peers, all built in the five months since March 2026.
 This page shows it, and then replays it being built.
 
-The obvious version of this page does not work. The live ref-update feed carries about
-a dozen visible events per day, not per second, so a firehose would be a blank screen
-most of the time, and a blank screen reads as broken software rather than as a quiet
-network. What is genuinely impressive is the accumulated total, so the page leads with
-a time-lapse of the whole history instead.
+The name is the Hubble Deep Field: point a telescope at a patch of sky that looks empty,
+hold the shutter open long enough, and thousands of galaxies appear. Same trick, aimed at
+a git network where only machines are working.
+
+The page leads with the replay rather than a live feed, and the reason is worth writing
+down because the first version of it was wrong. The gossip feed at
+`/api/v1/events/ref-updates` carries about six events a day, which is what made a live
+firehose look impossible. But that feed is only what this node overheard from its peers.
+The node's own counter moves about 0.5 pushes per minute, measured across a day, and 6
+distinct repositories were touched in the last hour when this was written. So live is
+viable after all; it is just bursty enough that a 7 minute window can show nothing at
+all. The replay still comes first, because watching five months build is what makes the
+live view mean anything.
 
 The replay's clock is the interesting part. Activity is violently bursty: one day added
 978 repositories and many days added none. Giving every day equal time spends a third of
@@ -69,7 +77,7 @@ CORS headers, and its agents endpoint ignores pagination and answers with all 4,
 in a single 960KB response. Both are fine on a server and unacceptable on a page load.
 
 ```sh
-node apps/push-wall/probe/crawl.mjs      # refresh the snapshot from the live node
+node apps/deep-field/probe/crawl.mjs      # refresh the snapshot from the live node
 ```
 
 A scheduled job re-crawls daily and commits the result when the network actually
@@ -89,13 +97,13 @@ the identifier rather than inventing a label.
 ## Running it
 
 ```sh
-node dev-server.mjs        # http://localhost:5173/beat-the-bot/ and /push-wall/
+node dev-server.mjs        # http://localhost:5173/beat-the-bot/ and /deep-field/
 node api/lib/leaderboard.test.mjs
 node apps/beat-the-bot/probe/test-pow-fast.mjs
 node apps/beat-the-bot/probe/test-sha256.mjs
-node apps/push-wall/probe/test-snapshot.mjs
-node apps/push-wall/probe/test-derive.mjs
-node apps/push-wall/probe/test-timelapse.mjs
+node apps/deep-field/probe/test-snapshot.mjs
+node apps/deep-field/probe/test-derive.mjs
+node apps/deep-field/probe/test-timelapse.mjs
 ```
 
 Play from a terminal, one level at a time:
@@ -136,6 +144,7 @@ means running `schema.sql` then each migration in order.
 | `GET /api/ledger.jsonl` | Every finished run, one JSON object per line. |
 | `GET /api/stats` | Funnel counts: started, cleared, clear rate. |
 | `POST /api/ic/*` | Same-origin proxy to iCaptcha (two routes allowlisted). |
+| `GET /api/net/*` | Same-origin proxy to the Gitlawb node (four routes allowlisted, 30s cache). |
 
 The proxy exists because the gate sends no CORS headers, so a browser cannot call it
 directly from another origin.
@@ -146,9 +155,9 @@ directly from another origin.
 apps/beat-the-bot/web/     the page
 apps/beat-the-bot/lib/     proof-of-work solver, shared by page and terminal runners
 apps/beat-the-bot/probe/   terminal runners, benchmarks, tests
-apps/push-wall/web/        the page, plus the committed snapshot under data/
-apps/push-wall/lib/        snapshot derivations and the replay clock (pure, tested)
-apps/push-wall/probe/      the crawler and its tests
+apps/deep-field/web/       the page, plus the committed snapshot under data/
+apps/deep-field/lib/       snapshot derivations and the replay clock (pure, tested)
+apps/deep-field/probe/     the crawler and its tests
 api/lib/                   proxy, proof verification, leaderboard rules (pure, tested)
 worker/                    Cloudflare entry point
 migrations/                ordered schema changes

@@ -1,7 +1,7 @@
-// The Push Wall: render one crawled snapshot of the Gitlawb network.
+// Deep Field: render one crawled snapshot of the Gitlawb network.
 //
 // Static by design. The measured rate of the network is roughly a dozen visible
-// events per day (see plans/push-wall.md), so there is nothing to stream and a
+// events per day (see plans/deep-field.md), so there is nothing to stream and a
 // ticker would read as broken software. The accumulated totals are the story.
 //
 // Security posture: every string below (repo names, owner DIDs, capability

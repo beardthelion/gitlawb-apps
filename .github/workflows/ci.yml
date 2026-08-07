@@ -38,19 +38,19 @@ jobs:
       # The crawled snapshot is committed, so these run offline and guard the
       # file that actually ships rather than whatever the node returns today.
       - name: Network snapshot shape and invariants
-        run: node apps/push-wall/probe/test-snapshot.mjs
+        run: node apps/deep-field/probe/test-snapshot.mjs
 
-      - name: Push Wall derivations (counters, curve, owners, events)
-        run: node apps/push-wall/probe/test-derive.mjs
+      - name: Deep Field derivations (counters, curve, owners, events)
+        run: node apps/deep-field/probe/test-derive.mjs
 
-      - name: Push Wall replay clock and layout
-        run: node apps/push-wall/probe/test-timelapse.mjs
+      - name: Deep Field replay clock and layout
+        run: node apps/deep-field/probe/test-timelapse.mjs
 
       # The gate on the nightly refresh. It runs unattended, so the thing that
       # decides whether a fresh crawl gets committed needs its own coverage more
       # than most code here, not less.
       - name: Snapshot refresh guard
-        run: node apps/push-wall/probe/test-snapshot-diff.mjs
+        run: node apps/deep-field/probe/test-snapshot-diff.mjs
 
       - name: Build produces the shipping tree
         run: |
@@ -58,10 +58,10 @@ jobs:
           test -f dist/llms.txt
           test -f dist/beat-the-bot/index.html
           test -f dist/beat-the-bot/lib/pow-fast.js
-          test -f dist/push-wall/index.html
-          test -f dist/push-wall/lib/derive.js
-          test -f dist/push-wall/lib/timelapse.js
-          test -f dist/push-wall/data/snapshot.json
+          test -f dist/deep-field/index.html
+          test -f dist/deep-field/lib/derive.js
+          test -f dist/deep-field/lib/timelapse.js
+          test -f dist/deep-field/data/snapshot.json
 
       # Literal control bytes inside a string or character class make a source
       # file read as binary: `file` reports "data" and plain grep silently

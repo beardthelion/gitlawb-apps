@@ -1,4 +1,4 @@
-// Same-origin proxy to the Gitlawb node, for the Push Wall's live layer.
+// Same-origin proxy to the Gitlawb node, for the Deep Field's live layer.
 //
 // It exists because node.gitlawb.com sends no CORS headers, so a poll from the
 // page is blocked before it leaves the tab. Same shape as icaptcha-proxy.js.
@@ -84,7 +84,7 @@ function trimRepos(rows) {
 }
 
 // old_sha, node_did, from_peer, cert_id and received_at are replication
-// bookkeeping, not push-wall content. owner_did is dropped too because `repo` is
+// bookkeeping, not deep-field content. owner_did is dropped too because `repo` is
 // already "<owner_did>/<name>". new_sha is cut to the 12 characters a UI shows.
 function trimEvents(body) {
   const events = Array.isArray(body?.events) ? body.events : [];

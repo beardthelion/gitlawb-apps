@@ -87,6 +87,15 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  // Mirrors the worker's redirect for the path Deep Field shipped under before
+  // it was renamed. Here for parity rather than for local convenience: a route
+  // that only exists in production is a route nobody tests.
+  if (url.pathname === "/push-wall" || url.pathname.startsWith("/push-wall/")) {
+    res.writeHead(301, { location: url.pathname.replace("/push-wall", "/deep-field") + url.search });
+    res.end();
+    return;
+  }
+
   const file = resolveStatic(url.pathname);
   if (!file) {
     res.writeHead(404, { "content-type": "text/plain" });

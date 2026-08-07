@@ -395,7 +395,7 @@ function apiIndex() {
       { method: "GET", path: "/api/leaderboard" },
       { method: "GET", path: "/api/ledger.jsonl" },
       { method: "GET", path: "/api/stats" },
-      // Read-only, cached mirror of node.gitlawb.com for the Push Wall. An
+      // Read-only, cached mirror of node.gitlawb.com for the Deep Field. An
       // allowlist, not a forwarder: nothing else on the node is reachable here.
       { method: "GET", path: "/api/net/stats" },
       { method: "GET", path: "/api/net/peers" },
@@ -465,7 +465,7 @@ export default {
       return json(body, status);
     }
 
-    // The Push Wall's live layer. Cached server side, so a hundred open tabs are
+    // Deep Field's live layer. Cached server side, so a hundred open tabs are
     // still at most one request per isolate per 30s to the node.
     if (pathname.startsWith("/api/net/")) {
       const { status, body } = await proxyNet(
@@ -488,6 +488,16 @@ export default {
 
     if (pathname === "/") {
       return Response.redirect(new URL("/beat-the-bot/", url).toString(), 302);
+    }
+
+    // Deep Field shipped as /push-wall/ for a few hours before it was renamed.
+    // Nothing links the old path, but it was deployed and served real traffic,
+    // so it redirects rather than 404s. Permanent, because the rename is.
+    if (pathname === "/push-wall" || pathname.startsWith("/push-wall/")) {
+      return Response.redirect(
+        new URL(pathname.replace("/push-wall", "/deep-field") + url.search, url).toString(),
+        301,
+      );
     }
 
     return env.ASSETS.fetch(request);

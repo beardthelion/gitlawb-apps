@@ -1,6 +1,6 @@
 name: Refresh network snapshot
 
-# The Push Wall renders a crawl of node.gitlawb.com that is committed rather than
+# Deep Field renders a crawl of node.gitlawb.com that is committed rather than
 # fetched: the node sends no CORS headers, and its agents endpoint answers with
 # every agent in one 960KB response. Both are fine on a runner and unacceptable
 # on a page load. So the file has to be re-crawled by something, and left alone
@@ -37,13 +37,13 @@ jobs:
       # Keep the committed snapshot where the crawl cannot overwrite it, since
       # the comparison needs both versions and crawl.mjs writes in place.
       - name: Keep the current snapshot for comparison
-        run: cp apps/push-wall/web/data/snapshot.json "$RUNNER_TEMP/previous.json"
+        run: cp apps/deep-field/web/data/snapshot.json "$RUNNER_TEMP/previous.json"
 
       # crawl.mjs aborts with a nonzero exit and writes nothing if a page fails
       # twice or pagination looks wrong, so a bad upstream day fails this job
       # rather than committing a partial network.
       - name: Crawl the node
-        run: node apps/push-wall/probe/crawl.mjs
+        run: node apps/deep-field/probe/crawl.mjs
 
       # Decides two separate things: whether the candidate is worth committing
       # (every crawl writes a new generated_at, so a plain diff is never empty),
@@ -52,7 +52,7 @@ jobs:
       # the second, which fails the job and leaves the good snapshot in place.
       - name: Compare against the committed snapshot
         id: diff
-        run: node apps/push-wall/probe/snapshot-diff.mjs "$RUNNER_TEMP/previous.json" apps/push-wall/web/data/snapshot.json >> "$GITHUB_OUTPUT"
+        run: node apps/deep-field/probe/snapshot-diff.mjs "$RUNNER_TEMP/previous.json" apps/deep-field/web/data/snapshot.json >> "$GITHUB_OUTPUT"
 
       # The same suites ci.yml runs, against the candidate rather than against
       # the file already in the repo. A push made with GITHUB_TOKEN does not
@@ -61,9 +61,9 @@ jobs:
       - name: Validate the new snapshot
         if: steps.diff.outputs.changed == 'true'
         run: |
-          node apps/push-wall/probe/test-snapshot.mjs
-          node apps/push-wall/probe/test-derive.mjs
-          node apps/push-wall/probe/test-timelapse.mjs
+          node apps/deep-field/probe/test-snapshot.mjs
+          node apps/deep-field/probe/test-derive.mjs
+          node apps/deep-field/probe/test-timelapse.mjs
 
       - name: Commit
         if: steps.diff.outputs.changed == 'true'
@@ -74,8 +74,8 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           # Only this file. Never `git add -A`: the runner is not the place to
           # discover what else happens to be sitting in the tree.
-          git add apps/push-wall/web/data/snapshot.json
-          git commit -m "data(push-wall): refresh the network snapshot" -m "$SUMMARY"
+          git add apps/deep-field/web/data/snapshot.json
+          git commit -m "data(deep-field): refresh the network snapshot" -m "$SUMMARY"
           git push
 
       - name: Nothing to do
