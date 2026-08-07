@@ -70,6 +70,9 @@ jobs:
           test -f dist/deep-field/lib/timelapse.js
           test -f dist/deep-field/lib/live.js
           test -f dist/deep-field/data/snapshot.json
+          # A card whose image 404s unfurls worse than no card at all, and the
+          # meta tag points at an absolute URL that nothing else here checks.
+          test -f dist/deep-field/og.png
 
       # Literal control bytes inside a string or character class make a source
       # file read as binary: `file` reports "data" and plain grep silently
