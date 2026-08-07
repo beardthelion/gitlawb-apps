@@ -315,6 +315,97 @@ section { margin-top: 2.6rem; }
 .chart-caption { margin: 0.9rem 0 0; font-size: 0.85rem; color: var(--dim); }
 .chart-caption strong { color: var(--fg); font-weight: 600; }
 
+/* --- punchcard --------------------------------------------------------- */
+
+/* minmax(0, 1fr) on the 24 hour columns, not auto: fractional columns divide
+   whatever width is there, so the grid shrinks to 360px instead of pushing the
+   page sideways. The gutter is in ch so it tracks the three-character day
+   labels in the monospace face. */
+.pc-grid, .pc-axis, .pc-totals {
+  display: grid;
+  grid-template-columns: 3.4ch repeat(24, minmax(0, 1fr));
+  gap: 2px;
+  align-items: center;
+}
+
+.pc-day {
+  font-size: 0.62rem;
+  color: var(--dim);
+  letter-spacing: 0.02em;
+  text-align: right;
+  padding-right: 0.3rem;
+}
+
+/* Square cells that follow the column width, so the whole card keeps its
+   proportions from 360px up to the 820px column. */
+.pc-cell {
+  aspect-ratio: 1;
+  min-width: 0;
+  background: #161c1e;
+  border-radius: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Size and opacity both carry the count, set inline from the derived intensity.
+   Printed or in greyscale the opacity flattens towards the cell background and
+   the side length is what still reads. */
+.pc-dot {
+  display: block;
+  background: var(--accent);
+  border-radius: 1px;
+}
+/* A slot with nothing in it is not a very small amount of something, so it gets
+   no mark at all rather than the smallest one. */
+.pc-dot.empty { background: none; }
+
+.pc-axis { margin-top: 3px; }
+
+/* The column sums under the lattice. Fixed height rather than aspect-ratio,
+   since these are bars and not squares, and they carry the swing the grid
+   itself is too flat to show. */
+.pc-totals { margin-top: 5px; align-items: end; }
+.pc-bar {
+  height: 26px;
+  min-width: 0;
+  background: #161c1e;
+  border-radius: 2px;
+  display: flex;
+  align-items: flex-end;
+}
+.pc-bar-fill {
+  display: block;
+  width: 100%;
+  background: var(--accent);
+  opacity: 0.55;
+  border-radius: 2px;
+  min-height: 1px;
+}
+.pc-bar-fill.peak { opacity: 1; }
+.pc-tick {
+  font-size: 0.62rem;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  /* The label is wider than its 9px column at 360px, so it is allowed to spill
+     symmetrically over its neighbours instead of wrapping to two lines. */
+  overflow: visible;
+  white-space: nowrap;
+}
+
+.pc-scale {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.9rem;
+  font-size: 0.72rem;
+  color: var(--dim);
+}
+.pc-ramp { display: flex; gap: 2px; }
+.pc-ramp .pc-cell { width: 14px; }
+
 /* --- proportional rows (owners, capabilities) -------------------------- */
 
 .rows { display: flex; flex-direction: column; gap: 0.35rem; }

@@ -302,6 +302,153 @@ export function topFamilies(snapshot, n = 12, repeatAt = 10) {
   };
 }
 
+// --- activity: weekday by hour -------------------------------------------
+
+// Row order is getUTCDay() order, so index 0 is Sunday. Short forms because the
+// row gutter of a 24 column grid is about three characters wide at 360px.
+export const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+export const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+export const weekdayLabel = (d) => WEEKDAY_LABELS[d] ?? "";
+export const weekdayName = (d) => WEEKDAY_NAMES[d] ?? "";
+
+// "15:00". Always two digits and always UTC, since the grid has no other zone in
+// it and a bare "15" next to a weekday reads as a date.
+export function hourLabel(h) {
+  if (!Number.isInteger(h) || h < 0 || h > 23) return "";
+  return `${String(h).padStart(2, "0")}:00`;
+}
+
+// "2026-03-13T01" -> "13 Mar 2026, 01:00 UTC". The crawler writes the key as an
+// hour-truncated ISO string, which Date.parse reads as UTC only once the minutes
+// are back on it: "2026-03-13T01" alone is not a form Date.parse must accept.
+export function batchLabel(key) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2})$/.exec(typeof key === "string" ? key : "");
+  if (!m) return typeof key === "string" ? key : "";
+  const t = Date.parse(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:00:00Z`);
+  if (!Number.isFinite(t)) return key;
+  const d = new Date(t);
+  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}, ${m[4]}:00 UTC`;
+}
+
+// Only a snapshot carrying a full 7x24 integer grid is usable. Anything else
+// returns null so the caller can skip the section rather than render a lattice of
+// NaN, which is the failure a heatmap hides best.
+export function activityGrid(snapshot) {
+  const g = snapshot?.activity?.grid;
+  if (!Array.isArray(g) || g.length !== 7) return null;
+  for (const row of g) {
+    if (!Array.isArray(row) || row.length !== 24) return null;
+    for (const v of row) if (!Number.isInteger(v) || v < 0) return null;
+  }
+  return g;
+}
+
+// Column sums: repos created in each hour of the day across every weekday.
+export function hourTotals(grid) {
+  const out = new Array(24).fill(0);
+  if (!Array.isArray(grid)) return out;
+  for (const row of grid) {
+    if (!Array.isArray(row)) continue;
+    for (let h = 0; h < 24; h++) if (Number.isFinite(row[h])) out[h] += row[h];
+  }
+  return out;
+}
+
+// Row sums, one per weekday, Sunday first.
+export function weekdayTotals(grid) {
+  if (!Array.isArray(grid)) return new Array(7).fill(0);
+  return grid.map((row) => (Array.isArray(row) ? row.reduce((a, v) => a + (Number.isFinite(v) ? v : 0), 0) : 0));
+}
+
+// Biggest and smallest cell. Ties go to the earliest weekday then the earliest
+// hour, so a re-crawl does not move the annotation between two level cells.
+export function gridExtremes(grid) {
+  if (!Array.isArray(grid) || grid.length === 0) return null;
+  let peak = null;
+  let trough = null;
+  for (let d = 0; d < grid.length; d++) {
+    const row = grid[d];
+    if (!Array.isArray(row)) continue;
+    for (let h = 0; h < row.length; h++) {
+      const count = Number.isFinite(row[h]) ? row[h] : 0;
+      if (!peak || count > peak.count) peak = { day: d, hour: h, count };
+      if (!trough || count < trough.count) trough = { day: d, hour: h, count };
+    }
+  }
+  return peak ? { peak, trough } : null;
+}
+
+// Largest and smallest entry of a series, as {index, value}. Used on the hour
+// column sums, where the ratio between the two is the whole claim: the daily
+// rhythm is only visible if the busy hours are a multiple of the quiet ones.
+export function seriesExtremes(values) {
+  if (!Array.isArray(values) || values.length === 0) return null;
+  let hi = 0;
+  let lo = 0;
+  for (let i = 1; i < values.length; i++) {
+    if (values[i] > values[hi]) hi = i;
+    if (values[i] < values[lo]) lo = i;
+  }
+  return {
+    max: { index: hi, value: values[hi] },
+    min: { index: lo, value: values[lo] },
+    // 0 rather than Infinity on an empty trough, so the caller branches on a
+    // number instead of printing "Infinity times".
+    ratio: values[lo] > 0 ? values[hi] / values[lo] : 0,
+  };
+}
+
+// Cell count -> a drawing intensity in 0..1, and the floor is the point. A linear
+// count/max puts the median cell (11 against a peak of 48) at 0.23, which renders
+// as almost nothing; sqrt lifts it to 0.48 without reordering any two cells,
+// because sqrt is monotonic. An empty cell still gets 0, so absence stays visible
+// as absence.
+export function cellIntensity(count, max) {
+  if (!Number.isFinite(count) || count <= 0) return 0;
+  if (!Number.isFinite(max) || max <= 0) return 0;
+  return Math.sqrt(Math.min(count, max) / max);
+}
+
+// Everything the punchcard section prints, from the snapshot's activity block.
+// Null when the snapshot predates the block or carries a malformed grid.
+//
+// weekday/weekend are means per day rather than totals, because there are five
+// weekdays and two weekend days and the totals would show a gap that is mostly
+// just the count of days.
+export function activitySummary(snapshot) {
+  const grid = activityGrid(snapshot);
+  if (!grid) return null;
+  const a = snapshot.activity;
+  const hours = hourTotals(grid);
+  const weekdays = weekdayTotals(grid);
+  const cells = gridExtremes(grid);
+  const hourSwing = seriesExtremes(hours);
+  const batches = (Array.isArray(a.batches) ? a.batches : [])
+    .filter((b) => Array.isArray(b) && typeof b[0] === "string" && Number.isInteger(b[1]));
+  const workdaySum = weekdays[1] + weekdays[2] + weekdays[3] + weekdays[4] + weekdays[5];
+  return {
+    grid,
+    hours,
+    weekdays,
+    max: cells ? cells.peak.count : 0,
+    peakCell: cells ? cells.peak : null,
+    troughCell: cells ? cells.trough : null,
+    busiestHour: hourSwing ? { hour: hourSwing.max.index, count: hourSwing.max.value } : null,
+    quietestHour: hourSwing ? { hour: hourSwing.min.index, count: hourSwing.min.value } : null,
+    swing: hourSwing ? hourSwing.ratio : 0,
+    weekdayMean: workdaySum / 5,
+    weekendMean: (weekdays[0] + weekdays[6]) / 2,
+    // How many of the 168 slots never saw a repository. The trough cell is a
+    // tie among all of them once any cell is zero, so quoting the trough on its
+    // own would present one arbitrary slot as if it were special.
+    emptyCells: grid.reduce((n, row) => n + row.reduce((m, v) => m + (v === 0 ? 1 : 0), 0), 0),
+    counted: Number.isInteger(a.counted) ? a.counted : 0,
+    excluded: Number.isInteger(a.excluded) ? a.excluded : 0,
+    batches,
+  };
+}
+
 // Stars, forks, and repos never touched after the day they appeared.
 //
 // `updated` and `created` are day indexes, not timestamps (see crawl.mjs), so

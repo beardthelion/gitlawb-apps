@@ -163,6 +163,53 @@ const repos = repoRows
   })
   .sort((a, b) => a[2] - b[2]);
 
+// --- activity: weekday by hour -------------------------------------------
+
+// A single UTC clock-hour holding this many repo creations is a seeding run
+// rather than anyone working. Measured over the whole five months: the busiest
+// clock-hour is 2026-03-13T01 with 971 repos, the second is 2026-04-16T03 with
+// 102, and the THIRD is 30. So the real threshold is anywhere in the 31..101
+// band and 60 sits in the middle of it, far from both edges. Organic hours would
+// have to more than double before this started eating them.
+const BATCH_HOUR_MIN = 60;
+
+// Bucket by absolute clock-hour first, because a batch is a single wall-clock
+// event and the 7x24 cell it lands in also holds four months of ordinary hours.
+// Excluding the cell would throw away the real activity sharing it; excluding the
+// hour throws away only the batch.
+const hourCounts = new Map();  // "2026-03-13T01" -> repos created in that hour
+for (const t of repoCreated) {
+  const k = new Date(t).toISOString().slice(0, 13);
+  hourCounts.set(k, (hourCounts.get(k) ?? 0) + 1);
+}
+const batchHours = new Set();
+for (const [k, n] of hourCounts) if (n >= BATCH_HOUR_MIN) batchHours.add(k);
+
+// Row 0 is Sunday, matching getUTCDay(). Both axes are UTC because that is what
+// the node's timestamps carry; picking a local zone would invent an origin for
+// the operators that the data does not contain.
+const grid = Array.from({ length: 7 }, () => new Array(24).fill(0));
+let counted = 0;
+let excluded = 0;
+for (const t of repoCreated) {
+  const d = new Date(t);
+  if (batchHours.has(d.toISOString().slice(0, 13))) { excluded++; continue; }
+  grid[d.getUTCDay()][d.getUTCHours()]++;
+  counted++;
+}
+
+const batches = [...batchHours].sort().map((k) => [k, hourCounts.get(k)]);
+const gridSum = grid.reduce((a, row) => a + row.reduce((x, y) => x + y, 0), 0);
+// The page prints `counted` next to a grid it renders from `grid`, so these
+// drifting apart would put a wrong number under a right picture, silently. This
+// also catches a repo whose created_at did not parse: repoCreated drops those,
+// and the repos array does not.
+if (gridSum !== counted || counted + excluded !== repos.length) {
+  die(`activity grid does not balance: grid ${gridSum}, counted ${counted}, ` +
+    `excluded ${excluded}, repos ${repos.length}`);
+}
+console.log(`  activity: ${counted} counted, ${excluded} excluded in ${batches.length} batch hours`);
+
 // --- agents --------------------------------------------------------------
 
 const dailyMap = new Map();
@@ -192,6 +239,10 @@ const snapshot = {
   stats: { agents: stats.agents, pushes: stats.pushes, repos: stats.repos, version: stats.version },
   owners,
   repos,
+  // 168 integers and a two-entry batch list, a few hundred bytes. The alternative
+  // that answers the same question is a timestamp per repo, which is 3,150 of
+  // them and about 80KB on top of a 184KB file.
+  activity: { grid, batches, counted, excluded },
   agents: {
     total: agentRows.length,
     daily: [...dailyMap.entries()].sort((a, b) => a[0] - b[0]),

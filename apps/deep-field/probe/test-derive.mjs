@@ -22,6 +22,9 @@ import {
   dailyNewRepos, dailyFromPairs, cumulative, cumulativeRepos, cumulativeAgents,
   peakDay, ownerCounts, topOwners, topCapabilities,
   repoFamily, repoFamilies, topFamilies, repoActivity,
+  weekdayLabel, weekdayName, hourLabel, batchLabel,
+  activityGrid, hourTotals, weekdayTotals, gridExtremes, seriesExtremes,
+  cellIntensity, activitySummary,
 } from "../lib/derive.js";
 
 // An optional path argument, matching test-snapshot.mjs, so a candidate snapshot
@@ -367,6 +370,119 @@ check("an empty snapshot has no tail to report", topFamilies({}, 5).tailRepos, 0
 check("activity on an empty snapshot", repoActivity({}).total, 0);
 check("activity ignores malformed rows", repoActivity({ repos: ["x", null] }).starred, 0);
 
+// --- activity punchcard --------------------------------------------------
+// A hand-built 7x24 grid, empty except for cells whose position is the assertion.
+// Row 2 (Tuesday) hour 15 is the peak, row 0 (Sunday) hour 3 is a mid value, and
+// everything else is zero, so a helper that transposed the axes or read the rows
+// in Monday-first order lands on a different number rather than a plausible one.
+{
+  const blank = () => Array.from({ length: 7 }, () => new Array(24).fill(0));
+  const g = blank();
+  g[2][15] = 40;   // Tuesday 15:00, the peak cell
+  g[2][3] = 10;    // same row, quiet hour
+  g[0][3] = 6;     // Sunday 03:00
+  g[5][15] = 20;   // Friday 15:00, same column as the peak
+  const SNAP = {
+    activity: { grid: g, batches: [["2026-03-13T01", 971], ["2026-04-16T03", 102]], counted: 76, excluded: 1073 },
+  };
+
+  check("labels are Sunday first", weekdayLabel(0), "Sun");
+  check("weekday label at the end of the row order", weekdayLabel(6), "Sat");
+  check("weekday label out of range", weekdayLabel(7), "");
+  check("weekday name is the long form", weekdayName(3), "Wednesday");
+  check("hour label pads and marks the hour", hourLabel(5), "05:00");
+  check("hour label at the end of the day", hourLabel(23), "23:00");
+  check("hour label rejects hour 24", hourLabel(24), "");
+  check("hour label rejects a negative hour", hourLabel(-1), "");
+
+  check("batch key renders as a date and hour", batchLabel("2026-03-13T01"), "13 Mar 2026, 01:00 UTC");
+  check("batch key keeps the hour it was given", batchLabel("2026-04-16T03"), "16 Apr 2026, 03:00 UTC");
+  check("batch key that is not an hour key comes back unchanged", batchLabel("nonsense"), "nonsense");
+
+  check("a well formed grid is accepted", activityGrid(SNAP), g);
+  check("a snapshot with no activity block is rejected", activityGrid({}), null);
+  check("a grid with the wrong number of rows is rejected",
+    activityGrid({ activity: { grid: [new Array(24).fill(0)] } }), null);
+  check("a row with the wrong number of hours is rejected",
+    activityGrid({ activity: { grid: blank().map((r, i) => (i === 4 ? r.slice(1) : r)) } }), null);
+  check("a negative cell is rejected",
+    activityGrid({ activity: { grid: blank().map((r, i) => (i === 1 ? [-1, ...r.slice(1)] : r)) } }), null);
+  check("a fractional cell is rejected",
+    activityGrid({ activity: { grid: blank().map((r, i) => (i === 1 ? [0.5, ...r.slice(1)] : r)) } }), null);
+
+  const hours = hourTotals(g);
+  check("hour totals have one entry per hour", hours.length, 24);
+  check("hour 15 sums both rows that hold it", hours[15], 60);
+  check("hour 3 sums both rows that hold it", hours[3], 16);
+  check("an hour nobody used is zero", hours[9], 0);
+  check("hour totals sum to the grid", hours.reduce((a, b) => a + b, 0), 76);
+
+  const wd = weekdayTotals(g);
+  check("weekday totals have one entry per day", wd.length, 7);
+  check("Tuesday holds both of its cells", wd[2], 50);
+  check("Sunday holds its one cell", wd[0], 6);
+  check("a weekday nobody used is zero", wd[1], 0);
+  check("weekday totals sum to the grid", wd.reduce((a, b) => a + b, 0), 76);
+
+  const ex = gridExtremes(g);
+  check("peak cell weekday", ex.peak.day, 2);
+  check("peak cell hour", ex.peak.hour, 15);
+  check("peak cell count", ex.peak.count, 40);
+  check("trough cell count", ex.trough.count, 0);
+  // Ties on a grid that is mostly zeros: the trough has to be the first zero in
+  // row order, Sunday 00:00, or the annotation moves between crawls.
+  check("trough ties go to the earliest weekday", ex.trough.day, 0);
+  check("trough ties go to the earliest hour", ex.trough.hour, 0);
+  check("extremes of an empty grid", gridExtremes([]), null);
+  // A second cell level with the peak, later in row order. Without a tie-break the
+  // annotation on the page moves between two equally true answers whenever the
+  // crawl nudges one of them, so the earliest wins and this is what says so.
+  {
+    const tied = blank();
+    tied[2][15] = 40;
+    tied[4][2] = 40;
+    const t = gridExtremes(tied);
+    check("peak ties go to the earliest weekday", t.peak.day, 2);
+    check("peak ties go to the earliest hour", t.peak.hour, 15);
+  }
+
+  const se = seriesExtremes([4, 9, 2, 9]);
+  check("series max index takes the first of a tie", se.max.index, 1);
+  check("series max value", se.max.value, 9);
+  check("series min index", se.min.index, 2);
+  check("series ratio", se.ratio, 4.5);
+  // A zero trough would make the ratio Infinity, which prints as "Infinity times
+  // quieter" on the page.
+  check("series ratio with a zero minimum is zero, not Infinity", seriesExtremes([0, 5]).ratio, 0);
+  check("series extremes of an empty array", seriesExtremes([]), null);
+
+  // sqrt, so the median cell is visible rather than a smudge, and monotonic, so
+  // no two cells swap order.
+  check("intensity is 1 at the maximum", cellIntensity(40, 40), 1);
+  check("intensity is 0 at zero", cellIntensity(0, 40), 0);
+  check("intensity lifts a quarter-height cell above a quarter", cellIntensity(10, 40), 0.5);
+  check("intensity is monotonic", cellIntensity(20, 40) > cellIntensity(10, 40), true);
+  check("intensity with no maximum is 0", cellIntensity(5, 0), 0);
+  check("intensity clamps a count above the maximum", cellIntensity(80, 40), 1);
+
+  const sum = activitySummary(SNAP);
+  check("summary peak cell", `${sum.peakCell.day}/${sum.peakCell.hour}/${sum.peakCell.count}`, "2/15/40");
+  check("summary max is the peak count", sum.max, 40);
+  check("summary busiest hour is a column, not a cell", sum.busiestHour.hour, 15);
+  check("summary busiest hour count is the column sum", sum.busiestHour.count, 60);
+  check("summary quietest hour", sum.quietestHour.count, 0);
+  check("summary carries the counted total", sum.counted, 76);
+  check("summary carries the excluded total", sum.excluded, 1073);
+  check("summary keeps both batch hours", sum.batches.length, 2);
+  check("summary counts the empty slots", sum.emptyCells, 168 - 4);
+  // Means per day, not row totals: five weekdays against two weekend days.
+  check("weekday mean is over five days", sum.weekdayMean, 70 / 5);
+  check("weekend mean is over two days", sum.weekendMean, 6 / 2);
+  check("summary of a snapshot without the block", activitySummary({}), null);
+  check("summary drops a malformed batch entry",
+    activitySummary({ activity: { grid: g, batches: [["2026-03-13T01", 971], "junk", ["x", 1.5]], counted: 76, excluded: 971 } }).batches.length, 1);
+}
+
 // --- the real snapshot ---------------------------------------------------
 // One pass over the committed file. Nothing here is an absolute number any more:
 // crawl.mjs exists to be re-run, and pinning 3,150 and 4,088 in three files meant
@@ -411,6 +527,20 @@ check("activity ignores malformed rows", repoActivity({ repos: ["x", null] }).st
   check("snapshot has a family of at least ten", f.top[0].count >= 10, true);
   check("snapshot family owners never exceed the family size",
     f.top.every((x) => x.owners >= 1 && x.owners <= x.count), true);
+
+  // The punchcard against the real file. Absolute values stay out (they belong to
+  // one crawl), but the relationships hold on every crawl, and the swing is the
+  // one the section's claim rests on: without it there is no rhythm to show.
+  const pc = activitySummary(s);
+  check("snapshot has a usable activity grid", pc !== null, true);
+  check("snapshot hour totals sum to counted", hourTotals(pc.grid).reduce((a, b) => a + b, 0), pc.counted);
+  check("snapshot weekday totals sum to counted", weekdayTotals(pc.grid).reduce((a, b) => a + b, 0), pc.counted);
+  check("snapshot counted plus excluded is every repo", pc.counted + pc.excluded, s.repos.length);
+  check("snapshot batch counts sum to excluded", pc.batches.reduce((a, b) => a + b[1], 0), pc.excluded);
+  check("snapshot peak cell is the largest cell",
+    pc.grid.every((r) => r.every((v) => v <= pc.peakCell.count)), true);
+  check("snapshot daily swing is at least double", pc.swing >= 2, true);
+  check("snapshot weekdays outpace weekends", pc.weekdayMean > pc.weekendMean, true);
 
   const act = repoActivity(s);
   check("snapshot activity total is the repo count", act.total, s.repos.length);

@@ -17,6 +17,7 @@ import {
   dailyNewRepos, dailyFromPairs, cumulative, peakDay,
   topOwners, topCapabilities,
   topFamilies, repoActivity,
+  activitySummary, cellIntensity, weekdayLabel, weekdayName, hourLabel, batchLabel,
 } from "./lib/derive.js";
 import { renderTimelapse } from "./timelapse-canvas.js";
 
@@ -317,6 +318,174 @@ function renderFamilies(s) {
     `${formatCount(a.untouched)} an upper bound on how many were built and abandoned.`;
 }
 
+// --- punchcard -----------------------------------------------------------
+
+// Which hour columns get a printed label. Every third would collide at 360px,
+// where a column is about nine pixels wide, so this is the four quarter marks
+// plus the last hour, which is the one that shows the fall back to the trough.
+const HOUR_TICKS = [0, 6, 12, 18, 23];
+
+// A CSS grid rather than a canvas or a fixed-viewBox SVG. The columns are
+// fractional, so 24 of them divide whatever width there is instead of forcing a
+// scrollbar at 360px, and the labels stay real text at a real font size instead
+// of scaling with a viewBox.
+function renderPunchcard(s) {
+  const host = $("punchcard");
+  const a = activitySummary(s);
+  if (!a) {
+    $("punchcard-alt").textContent =
+      "This snapshot carries no hour-of-day breakdown, so the punchcard is not shown.";
+    return;
+  }
+
+  const peakWhen = `${weekdayName(a.peakCell.day)} ${hourLabel(a.peakCell.hour)} UTC`;
+  const busiest = `${hourLabel(a.busiestHour.hour)} UTC`;
+  const quietest = `${hourLabel(a.quietestHour.hour)} UTC`;
+  const swing = a.swing.toFixed(1);
+  const weekdayMean = formatCount(Math.round(a.weekdayMean));
+  const weekendMean = formatCount(Math.round(a.weekendMean));
+
+  const frame = node("div", "chart-frame");
+
+  // One label for the whole lattice. 168 cells read out one at a time is not a
+  // description of anything, so the grid is a single image and the sentence below
+  // carries the same numbers.
+  const grid = node("div", "pc-grid");
+  grid.setAttribute("role", "img");
+  grid.setAttribute("aria-label",
+    `Repository creations by UTC weekday and hour. The busiest hour of the day is ${busiest} ` +
+    `with ${formatCount(a.busiestHour.count)} repositories and the quietest is ${quietest} with ` +
+    `${formatCount(a.quietestHour.count)}. Weekdays average ${weekdayMean} and weekend days ${weekendMean}.`);
+
+  for (let d = 0; d < a.grid.length; d++) {
+    grid.append(node("div", "pc-day", weekdayLabel(d)));
+    for (let h = 0; h < 24; h++) {
+      const count = a.grid[d][h];
+      const cell = node("div", "pc-cell");
+      // Both channels move together: alpha for colour vision, side length for
+      // everyone else. In greyscale the alpha collapses towards the panel and the
+      // size is what is left carrying the shape.
+      const i = cellIntensity(count, a.max);
+      const dot = node("span", "pc-dot");
+      const side = (24 + i * 76).toFixed(1);
+      dot.style.width = `${side}%`;
+      dot.style.height = `${side}%`;
+      dot.style.opacity = (0.22 + i * 0.78).toFixed(3);
+      if (count === 0) dot.classList.add("empty");
+      cell.append(dot);
+      // Every square is checkable on its own, which is the only thing that makes
+      // a heatmap auditable.
+      cell.title = `${weekdayName(d)} ${hourLabel(h)} UTC: ` +
+        `${formatCount(count)} ${count === 1 ? "repository" : "repositories"}`;
+      grid.append(cell);
+    }
+  }
+  frame.append(grid);
+
+  // The marginal totals, and the grid needs them to be honest. The finding is a
+  // 2.8x swing across the day, but it lives in the column sums: a single square
+  // holds 11 repositories at the median and 48 at most, so 168 of them scaled
+  // against each other come out nearly identical and the climb the caption
+  // describes is invisible. Summing each hour down its column is where the shape
+  // actually is, so it gets drawn rather than only asserted underneath.
+  const hourMax = Math.max(...a.hours, 1);
+  const totals = node("div", "pc-totals");
+  totals.setAttribute("role", "img");
+  totals.setAttribute("aria-label",
+    `Repository creations summed by hour of day, ${formatCount(a.quietestHour.count)} at ` +
+    `${quietest} rising to ${formatCount(a.busiestHour.count)} at ${busiest}.`);
+  totals.append(node("div", "pc-day"));
+  for (let h = 0; h < 24; h++) {
+    const n = a.hours[h];
+    const col = node("div", "pc-bar");
+    const fill = node("span", "pc-bar-fill");
+    // Linear against the column max, not sqrt. These are the numbers the reader
+    // is being asked to compare, so the bar heights have to be the real ratio.
+    fill.style.height = `${((n / hourMax) * 100).toFixed(1)}%`;
+    if (h === a.busiestHour.hour) fill.classList.add("peak");
+    col.append(fill);
+    col.title = `${hourLabel(h)} UTC: ${formatCount(n)} across all seven days`;
+    totals.append(col);
+  }
+  frame.append(totals);
+
+  const axis = node("div", "pc-axis");
+  axis.setAttribute("aria-hidden", "true");
+  axis.append(node("div", "pc-day"));
+  for (const h of HOUR_TICKS) {
+    const tick = node("div", "pc-tick", String(h).padStart(2, "0"));
+    // Column 1 is the weekday gutter, so hour h is column h + 2.
+    tick.style.gridColumn = String(h + 2);
+    axis.append(tick);
+  }
+  frame.append(axis);
+
+  const scale = node("div", "pc-scale");
+  scale.append(node("span", null, "fewer"));
+  const ramp = node("div", "pc-ramp");
+  for (const frac of [0, 0.25, 0.5, 0.75, 1]) {
+    const cell = node("div", "pc-cell");
+    const dot = node("span", "pc-dot");
+    const side = (24 + frac * 76).toFixed(1);
+    dot.style.width = `${side}%`;
+    dot.style.height = `${side}%`;
+    dot.style.opacity = (0.22 + frac * 0.78).toFixed(3);
+    if (frac === 0) dot.classList.add("empty");
+    cell.append(dot);
+    cell.title = `about ${formatCount(Math.round(frac * frac * a.max))} repositories`;
+    ramp.append(cell);
+  }
+  scale.append(ramp);
+  scale.append(node("span", null, `more, up to ${formatCount(a.max)}`));
+  frame.append(scale);
+
+  host.append(frame);
+
+  const finding = node("p", "chart-caption");
+  finding.append(document.createTextNode("Repository creation follows a daily and weekly rhythm. "));
+  finding.append(node("strong", null,
+    `${quietest} is the quietest hour of the day at ${formatCount(a.quietestHour.count)} repositories, ` +
+    `climbing to ${formatCount(a.busiestHour.count)} at ${busiest}`));
+  finding.append(document.createTextNode(
+    `, a ${swing}x swing, with the whole afternoon and evening elevated. The busiest single square is ` +
+    `${peakWhen} at ${formatCount(a.peakCell.count)}. An average weekday adds ${weekdayMean} repositories ` +
+    `and an average weekend day ${weekendMean}, with Sunday the quietest day of the week. ` +
+    `${formatCount(a.emptyCells)} of the 168 squares ${a.emptyCells === 1 ? "is" : "are"} empty. ` +
+    "That is a working week, which is not what an autonomous agent network sounds like."));
+  host.append(finding);
+
+  // Written from the batch list rather than from the two hours we know are there,
+  // because the crawler re-derives the list on every refresh and a third seeding
+  // run would otherwise be silently dropped by a sentence that says "two".
+  const named = a.batches.map((b) => `${batchLabel(b[0])} (${formatCount(b[1])} repositories)`).join(" and ");
+  const excluded = node("p", "fine");
+  excluded.textContent = a.batches.length === 0
+    ? "No clock-hour in this crawl reached the batch threshold, so every repository is in the grid."
+    : `${formatCount(a.batches.length)} clock-hours are left out of the grid: ${named}. That is ` +
+    `${formatCount(a.excluded)} repositories ` +
+    `removed and ${formatCount(a.counted)} counted. They are seeding runs rather than work: the third ` +
+    "busiest clock-hour in five months holds 30 repositories, so nothing organic comes near the cut of " +
+    `60. Leaving them in would put ${formatCount(Math.max(...a.batches.map((b) => b[1])))} in one square ` +
+    "against a median square of 11, and every other square would render as empty.";
+  host.append(excluded);
+
+  const zone = node("p", "fine");
+  zone.textContent =
+    "The clock is UTC, because UTC is what the node records. The swing says activity concentrates in " +
+    `some band of the world's clock and nothing more. ${busiest} is late morning in New York, ` +
+    "mid-afternoon in London and late evening in Tokyo, and this snapshot cannot tell those apart. " +
+    "Where the operators are is not in the data.";
+  host.append(zone);
+
+  $("punchcard-alt").textContent =
+    `Text alternative. Across ${formatCount(a.counted)} repository creations placed by UTC weekday and ` +
+    `hour, the hourly totals run from ${formatCount(a.quietestHour.count)} at ${quietest} up to ` +
+    `${formatCount(a.busiestHour.count)} at ${busiest}, a ${swing}x swing, and weekdays average ` +
+    `${weekdayMean} creations against ${weekendMean} on a weekend day. The busiest square is ${peakWhen} ` +
+    `at ${formatCount(a.peakCell.count)} and ${formatCount(a.emptyCells)} of the 168 squares ` +
+    `${a.emptyCells === 1 ? "is" : "are"} empty.`;
+}
+
 function renderCapabilities(s) {
   const host = $("caps");
   const { top, tailKinds, tailClaims } = topCapabilities(s.agents?.capabilities, 6);
@@ -353,6 +522,7 @@ export async function boot() {
     renderGrowth(snapshot);
     renderOwners(snapshot);
     renderFamilies(snapshot);
+    renderPunchcard(snapshot);
     renderCapabilities(snapshot);
     renderFooter(snapshot);
   } catch (err) {

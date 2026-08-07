@@ -67,6 +67,46 @@ check("owners are unique", new Set(s.owners).size, s.owners.length);
     counts.every((n, i) => i === 0 || counts[i - 1] >= n), true);
 }
 
+// --- activity ------------------------------------------------------------
+// A 7x24 grid of repo creations by UTC weekday and hour, with whole clock-hours
+// above the crawler's batch threshold pulled out. The grid is the only place the
+// page can check its own arithmetic, so the balance below is the assertion that
+// matters: grid sum plus excluded has to be every repo, or the section prints a
+// caption that does not describe the picture next to it.
+{
+  const a = s.activity;
+  check("activity grid has 7 rows", Array.isArray(a.grid) && a.grid.length === 7, true);
+  check("activity rows have 24 hours", a.grid.every((r) => Array.isArray(r) && r.length === 24), true);
+  check("activity cells are non-negative integers",
+    a.grid.every((r) => r.every((v) => Number.isInteger(v) && v >= 0)), true);
+
+  const gridSum = a.grid.reduce((t, r) => t + r.reduce((x, y) => x + y, 0), 0);
+  check("activity grid sums to counted", gridSum, a.counted);
+  check("counted plus excluded is every repo", a.counted + a.excluded, s.repos.length);
+  check("excluded is a non-negative integer", Number.isInteger(a.excluded) && a.excluded >= 0, true);
+
+  check("batches is an array", Array.isArray(a.batches), true);
+  check("batch entries are [hour, count] pairs",
+    a.batches.every((b) => Array.isArray(b) && b.length === 2 &&
+      /^\d{4}-\d{2}-\d{2}T\d{2}$/.test(b[0]) && Number.isInteger(b[1]) && b[1] > 0), true);
+  // Every excluded hour has to clear the crawler's threshold, which is what makes
+  // "batch" a measurement rather than a label. Kept in step with BATCH_HOUR_MIN in
+  // crawl.mjs; the two would only drift if someone lowered the threshold there and
+  // started eating ordinary hours, which is exactly what this catches.
+  check("every batch hour is at or above the threshold of 60",
+    a.batches.every((b) => b[1] >= 60), true);
+  check("batch counts sum to excluded", a.batches.reduce((t, b) => t + b[1], 0), a.excluded);
+  check("batch hours are unique", new Set(a.batches.map((b) => b[0])).size, a.batches.length);
+  check("batch hours are sorted", a.batches.every((b, i) => i === 0 || a.batches[i - 1][0] < b[0]), true);
+  // Two on every crawl so far. A dozen would mean the threshold had stopped
+  // separating seeding runs from work, and the section's "we removed these two
+  // hours and named them" copy would be a list nobody reads.
+  check("batch hours (cap 24)", a.batches.length <= 24, true);
+  // The section's whole claim is that a shape survives the removal. If batches ate
+  // most of the network there would be nothing left to show a rhythm in.
+  check("counted repos (floor 1500)", a.counted >= 1500, true);
+}
+
 // --- agents --------------------------------------------------------------
 check("agent total matches stats", s.agents.total, s.stats.agents);
 check("daily registrations sum to the total",
