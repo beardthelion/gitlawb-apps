@@ -1,0 +1,83 @@
+name: Refresh network snapshot
+
+# The Push Wall renders a crawl of node.gitlawb.com that is committed rather than
+# fetched: the node sends no CORS headers, and its agents endpoint answers with
+# every agent in one 960KB response. Both are fine on a runner and unacceptable
+# on a page load. So the file has to be re-crawled by something, and left alone
+# it silently ages into a picture of the network as it was.
+#
+# Daily, because the network adds on the order of a dozen repositories a day.
+# Hourly would buy nothing and cost 24 times the commits.
+
+on:
+  schedule:
+    # 06:17 UTC. Off the hour on purpose: scheduled jobs queue at :00 and can be
+    # delayed by many minutes, and nothing here needs a particular time.
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+# Never two crawls writing the same file at once, and a manual run should not
+# race the nightly one.
+concurrency:
+  group: snapshot-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      # Keep the committed snapshot where the crawl cannot overwrite it, since
+      # the comparison needs both versions and crawl.mjs writes in place.
+      - name: Keep the current snapshot for comparison
+        run: cp apps/push-wall/web/data/snapshot.json "$RUNNER_TEMP/previous.json"
+
+      # crawl.mjs aborts with a nonzero exit and writes nothing if a page fails
+      # twice or pagination looks wrong, so a bad upstream day fails this job
+      # rather than committing a partial network.
+      - name: Crawl the node
+        run: node apps/push-wall/probe/crawl.mjs
+
+      # Decides two separate things: whether the candidate is worth committing
+      # (every crawl writes a new generated_at, so a plain diff is never empty),
+      # and whether it is safe to (these counts are creations that the node does
+      # not delete, so a smaller crawl is a broken crawl). It exits nonzero on
+      # the second, which fails the job and leaves the good snapshot in place.
+      - name: Compare against the committed snapshot
+        id: diff
+        run: node apps/push-wall/probe/snapshot-diff.mjs "$RUNNER_TEMP/previous.json" apps/push-wall/web/data/snapshot.json >> "$GITHUB_OUTPUT"
+
+      # The same suites ci.yml runs, against the candidate rather than against
+      # the file already in the repo. A push made with GITHUB_TOKEN does not
+      # trigger other workflows, so ci.yml is not expected to run on the commit
+      # below; that is why these run here and not only there.
+      - name: Validate the new snapshot
+        if: steps.diff.outputs.changed == 'true'
+        run: |
+          node apps/push-wall/probe/test-snapshot.mjs
+          node apps/push-wall/probe/test-derive.mjs
+          node apps/push-wall/probe/test-timelapse.mjs
+
+      - name: Commit
+        if: steps.diff.outputs.changed == 'true'
+        env:
+          SUMMARY: ${{ steps.diff.outputs.summary }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Only this file. Never `git add -A`: the runner is not the place to
+          # discover what else happens to be sitting in the tree.
+          git add apps/push-wall/web/data/snapshot.json
+          git commit -m "data(push-wall): refresh the network snapshot" -m "$SUMMARY"
+          git push
+
+      - name: Nothing to do
+        if: steps.diff.outputs.changed != 'true'
+        run: echo "The network did not move since the last crawl. No commit."

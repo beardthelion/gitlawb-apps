@@ -72,6 +72,14 @@ in a single 960KB response. Both are fine on a server and unacceptable on a page
 node apps/push-wall/probe/crawl.mjs      # refresh the snapshot from the live node
 ```
 
+A scheduled job re-crawls daily and commits the result when the network actually
+moved, so the page does not quietly age into a picture of March. It refuses a
+candidate whose counts went backwards: repositories, owners, agents and pushes
+are creations the node does not delete, so a crawl that returns fewer of them is
+a broken crawl, and replacing a good snapshot with a worse one is the failure
+worth guarding against. Deploying stays manual, so a refreshed snapshot reaches
+the site on the next `wrangler deploy`.
+
 Two things the page says out loud, because both are easy to misread. The push count is
 the node's own tally, while the ref-update list is a separate gossip feed of 200 rows
 spanning a month, so it is not the network's recent activity. And repository owner DIDs

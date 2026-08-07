@@ -41,6 +41,12 @@ jobs:
       - name: Push Wall replay clock and layout
         run: node apps/push-wall/probe/test-timelapse.mjs
 
+      # The gate on the nightly refresh. It runs unattended, so the thing that
+      # decides whether a fresh crawl gets committed needs its own coverage more
+      # than most code here, not less.
+      - name: Snapshot refresh guard
+        run: node apps/push-wall/probe/test-snapshot-diff.mjs
+
       - name: Build produces the shipping tree
         run: |
           node build.mjs

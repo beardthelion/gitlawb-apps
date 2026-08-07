@@ -8,8 +8,12 @@
 // asserted here against the committed file, including the two the crawler builds
 // rather than copies: the repo sort by creation day, and the owner ordering.
 //
-// This is also the one file that pins this crawl's absolute numbers, and the one
-// that bounds them. A refresh means editing the four lines at the bottom.
+// This is also the one file that bounds the snapshot's size and counts. It used
+// to pin them exactly; a daily job refreshes the file now, so the bottom of this
+// file is caps and floors that a growing network passes without an edit and a
+// broken crawl does not. Whether a given refresh went backwards against the
+// previous one is a question a single file cannot answer, and lives in
+// snapshot-diff.mjs.
 
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -34,7 +38,6 @@ check("day_base parses", Number.isFinite(Date.parse(s.day_base)), true);
 check("day_base is not after generated_at", Date.parse(s.day_base) <= Date.parse(s.generated_at), true);
 
 // --- repos ---------------------------------------------------------------
-check("repo count over 3000", s.repos.length > 3000, true);
 // The list is ordered by updated_at, so a push landing between page 1 and page 16
 // can shuffle a row across a page boundary and cost or duplicate it. Five rows is
 // the slack for that race; anything larger is a crawl bug, not concurrency.
@@ -65,7 +68,6 @@ check("owners are unique", new Set(s.owners).size, s.owners.length);
 }
 
 // --- agents --------------------------------------------------------------
-check("agent total over 4000", s.agents.total > 4000, true);
 check("agent total matches stats", s.agents.total, s.stats.agents);
 check("daily registrations sum to the total",
   s.agents.daily.reduce((a, [, n]) => a + n, 0), s.agents.total);
@@ -125,19 +127,27 @@ under("longest peer label", longest(s.peers.rows, (r) => r[0]), 256);      // 34
 under("longest ref name", longest(s.events, (e) => e[2]), 256);            // 20 today
 under("longest event repo id", longest(s.events, (e) => e[0]), 512);       // 80 today, a did plus a name
 
-// --- the committed crawl -------------------------------------------------
-// The only absolute numbers in the three suites. test-derive.mjs and
-// test-timelapse.mjs used to carry copies, which meant re-running crawl.mjs (the
-// point of crawl.mjs) reddened nine assertions that had nothing to say about the
-// totals. They now compare the snapshot against its own independent fields, and a
-// refresh is these four lines. Skipped when a path is passed, since a candidate
-// snapshot is exactly the thing that has not been pinned yet.
-if (process.argv[2] === undefined) {
-  check("committed crawl: repos", s.repos.length, 3150);
-  check("committed crawl: owners", s.owners.length, 1357);
-  check("committed crawl: agents", s.agents.total, 4088);
-  check("committed crawl: days", s.day_count, 149);
-}
+// --- floors --------------------------------------------------------------
+// These were exact pins on the first crawl (3150 / 1357 / 4088 / 149). A daily
+// job refreshes the snapshot now, so a pin would go red every time the network
+// gained a repo, which is the one thing it is guaranteed to do.
+//
+// Floors instead, because nothing here can legitimately shrink: repos and agents
+// are creations that the node never deletes, and a day that has happened stays
+// happened. A crawl that comes back smaller is a broken crawl, not a smaller
+// network, and that is exactly the failure worth catching. They sit a little
+// under the first crawl so they keep meaning something without needing edits.
+//
+// This is a floor, not a trend: it catches a catastrophically empty crawl. The
+// day-to-day "did anything go backwards" check compares against the previous
+// committed snapshot and lives in snapshot-diff.mjs, since a single file cannot
+// know what yesterday looked like.
+const over = (name, value, floor) => check(`${name} (floor ${floor})`, value >= floor, true);
+
+over("repos", s.repos.length, 3000);      // 3,150 on the first crawl
+over("owners", s.owners.length, 1300);    // 1,357
+over("agents", s.agents.total, 4000);     // 4,088
+over("days", s.day_count, 149);           // 149, and this one only ever ticks up
 
 console.log(fail === 0
   ? `\nall passed: ${s.repos.length} repos, ${s.owners.length} owners, ${s.agents.total} agents, ${s.peers.count} peers, ${s.events.length} events over ${s.day_count} days`
