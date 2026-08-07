@@ -96,13 +96,12 @@ const agentRows = Array.isArray(agentsBody?.agents) ? agentsBody.agents : [];
 if (!agentRows.length) die("agents endpoint returned no rows");
 console.log(`  agents: ${agentRows.length}`);
 
+// Still fetched, but only the two totals ship. The per-peer rows were 2,176 bytes
+// of a 212,985 byte snapshot and told the visitor less than explorer.gitlawb.com
+// already does per peer.
 const peersBody = await getJson("/api/v1/peers").catch(die);
 const peerRows = Array.isArray(peersBody?.peers) ? peersBody.peers : [];
 console.log(`  peers: ${peerRows.length}`);
-
-const eventsBody = await getJson("/api/v1/events/ref-updates?limit=200").catch(die);
-const rawEvents = Array.isArray(eventsBody?.events) ? eventsBody.events : [];
-console.log(`  events: ${rawEvents.length} raw`);
 
 // --- day base ------------------------------------------------------------
 
@@ -111,11 +110,15 @@ if (!repoCreated.length) die("no repo carried a parseable created_at");
 
 // The first agent registered 15 minutes before the first repo existed, on the
 // same UTC day, so today a repo-only day axis happens to work. That is luck, not
-// a property: any agent or peer timestamp landing a day earlier would push its
-// index negative. Everything that can produce a day index folds into the minimum
+// a property: any agent timestamp landing a day earlier would push its index
+// negative. Everything that can produce a day index folds into the minimum
 // instead of being clamped, and the crawl says so when the base moves.
+//
+// Peer last_seen used to fold in here too, back when a peer row carried a day
+// index. It no longer ships one, so it can no longer go negative. Measured on the
+// last crawl that had the rows: the earliest peer last_seen was day 148 of 149,
+// so it was never the minimum anyway and dropping it leaves day_base unmoved.
 const agentRegistered = agentRows.map((a) => ms(a.registered_at)).filter((t) => t !== null);
-const peerSeen = peerRows.map((p) => ms(p.last_seen)).filter((t) => t !== null);
 // Folded rather than spread. Math.min(...xs) passes one argument per element, and
 // that blows the call stack somewhere in the low hundreds of thousands: measured,
 // 4,088 agents is fine and 200,000 throws RangeError. This is the one place in
@@ -123,7 +126,7 @@ const peerSeen = peerRows.map((p) => ms(p.last_seen)).filter((t) => t !== null);
 const least = (xs) => xs.reduce((a, b) => (b < a ? b : a), Infinity);
 
 const earliestRepo = least(repoCreated);
-const baseMs = utcMidnight(Math.min(earliestRepo, least(agentRegistered), least(peerSeen)));
+const baseMs = utcMidnight(Math.min(earliestRepo, least(agentRegistered)));
 if (baseMs !== utcMidnight(earliestRepo)) {
   console.log(`  day_base pulled back to ${isoDay(baseMs)} (earliest repo is ${isoDay(earliestRepo)})`);
 }
@@ -179,36 +182,6 @@ for (const a of agentRows) {
 }
 const byCountDesc = (m) => [...m.entries()].sort((a, b) => b[1] - a[1]);
 
-// --- peers ---------------------------------------------------------------
-
-// A peer with a missing or malformed http_url still counts toward the mesh, so
-// it keeps its row and falls back to a truncated DID as its label.
-const peers = peerRows.map((p) => {
-  let label;
-  try { label = new URL(p.http_url).hostname; } catch { label = String(p.did ?? "unknown").slice(-12); }
-  const seen = ms(p.last_seen);
-  return [label, p.reachable ? 1 : 0, seen === null ? null : dayIdx(seen)];
-});
-
-// --- events --------------------------------------------------------------
-
-// Gossip can deliver the same push more than once, so dedupe on the event id
-// before anything downstream counts these as distinct pushes.
-const seenIds = new Set();
-const events = [];
-for (const e of rawEvents) {
-  if (e?.id && seenIds.has(e.id)) continue;
-  if (e?.id) seenIds.add(e.id);
-  const t = ms(e.timestamp) ?? ms(e.received_at);
-  events.push([
-    String(e.repo ?? ""),
-    String(e.pusher_did ?? "").slice(-8),
-    String(e.ref_name ?? ""),
-    /^0+$/.test(String(e.old_sha ?? "")) ? 1 : 0,
-    t === null ? null : new Date(t).toISOString(),
-  ]);
-}
-
 // --- write ---------------------------------------------------------------
 
 const snapshot = {
@@ -228,9 +201,7 @@ const snapshot = {
   peers: {
     count: peerRows.length,
     reachable: peerRows.filter((p) => p.reachable).length,
-    rows: peers,
   },
-  events,
 };
 
 // No indentation: this file ships to the browser. Trailing newline so it behaves
@@ -241,5 +212,5 @@ writeFileSync(OUT, body);
 
 console.log(`\nwrote ${OUT}`);
 console.log(`  ${repos.length} repos, ${owners.length} owners, ${snapshot.agents.total} agents, ` +
-  `${snapshot.peers.count} peers (${snapshot.peers.reachable} reachable), ${events.length} events`);
+  `${snapshot.peers.count} peers (${snapshot.peers.reachable} reachable)`);
 console.log(`  day_base ${snapshot.day_base}, day_count ${dayCount}, ${body.length} bytes`);

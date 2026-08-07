@@ -20,8 +20,8 @@ import { fileURLToPath } from "node:url";
 import {
   DAY_MS, formatCount, dayBaseMs, dayDate, dayLabel, formatUtc, truncateDid,
   dailyNewRepos, dailyFromPairs, cumulative, cumulativeRepos, cumulativeAgents,
-  peakDay, ownerCounts, topOwners, topCapabilities, sortedPeers, recentEvents,
-  splitRepoId, repoFamily, repoFamilies, topFamilies, repoActivity,
+  peakDay, ownerCounts, topOwners, topCapabilities,
+  repoFamily, repoFamilies, topFamilies, repoActivity,
 } from "../lib/derive.js";
 
 // An optional path argument, matching test-snapshot.mjs, so a candidate snapshot
@@ -58,15 +58,6 @@ const FIX = {
     capabilities: [["git:push", 7], ["git:fetch", 5], ["pr:open", 1], ["repo:create", 1]],
     statuses: [["active", 9]],
   },
-  peers: {
-    count: 3,
-    reachable: 1,
-    rows: [["zeta.example", 0, 4], ["alpha.example", 0, 3], ["mid.example", 1, 4]],
-  },
-  events: [
-    ["did:key:zOwner/repo-old", "aaaa1111", "refs/heads/main", 0, "2026-03-14T00:00:00.000Z"],
-    ["did:key:zOwner/repo-new", "bbbb2222", "refs/heads/feature", 1, "2026-03-16T00:00:00.000Z"],
-  ],
 };
 
 // --- numbers -------------------------------------------------------------
@@ -341,70 +332,6 @@ check("an empty snapshot has no tail to report", topFamilies({}, 5).tailRepos, 0
 }
 check("activity on an empty snapshot", repoActivity({}).total, 0);
 check("activity ignores malformed rows", repoActivity({ repos: ["x", null] }).starred, 0);
-
-// --- peers ---------------------------------------------------------------
-{
-  const p = sortedPeers(FIX);
-  check("all peers kept", p.length, 3);
-  check("reachable peer sorts first", p[0].label, "mid.example");
-  check("reachable flag decoded", p[0].reachable, true);
-  check("unreachable peers sorted by label", p[1].label, "alpha.example");
-  check("last unreachable peer", p[2].label, "zeta.example");
-}
-check("peers on an empty snapshot", sortedPeers({}).length, 0);
-
-// --- events --------------------------------------------------------------
-{
-  const e = recentEvents(FIX, 5);
-  check("events newest first", e[0].repo, "did:key:zOwner/repo-new");
-  check("create flag decoded", e[0].created, true);
-  check("update is not a create", e[1].created, false);
-  check("ref name preserved", e[0].ref, "refs/heads/feature");
-}
-check("events respect N", recentEvents(FIX, 1).length, 1);
-check("events on an empty snapshot", recentEvents({}, 5).length, 0);
-check("zero events requested", recentEvents(FIX, 0).length, 0);
-check("a lone event still carries a count", recentEvents(FIX, 5)[0].count, 1);
-
-// Collapsing. The real feed is 200 rows over 10 repos, so this is the path that
-// decides what the page actually shows.
-{
-  const at = (h) => `2026-03-16T0${h}:00:00.000Z`;
-  const run = (repo, ref, created, h) => [`did:key:zOwner/${repo}`, "cccc3333", ref, created, at(h)];
-  const S = { events: [run("a", "refs/heads/main", 0, 1), run("a", "refs/heads/main", 0, 2), run("a", "refs/heads/main", 0, 3)] };
-  const got = recentEvents(S, 5);
-  check("a run of the same repo and ref becomes one row", got.length, 1);
-  check("the row counts the whole run", got[0].count, 3);
-  check("the run keeps its newest timestamp", got[0].at, at(3));
-  check("the run keeps its oldest timestamp", got[0].since, at(1));
-
-  // Same repo, different ref: two branches moving is not one event.
-  const R = { events: [run("a", "refs/heads/main", 0, 2), run("a", "refs/heads/work", 0, 1)] };
-  check("a different ref breaks the run", recentEvents(R, 5).length, 2);
-
-  // A create and an update on the same ref are different facts.
-  const C = { events: [run("a", "refs/heads/main", 0, 2), run("a", "refs/heads/main", 1, 1)] };
-  check("a create does not merge into updates", recentEvents(C, 5).length, 2);
-
-  // Quiet, then back. Merging across the gap would erase the only shape this
-  // feed has, so the collapse is consecutive-only.
-  const G = {
-    events: [run("a", "refs/heads/main", 0, 3), run("b", "refs/heads/main", 0, 2), run("a", "refs/heads/main", 0, 1)],
-  };
-  const gaps = recentEvents(G, 5);
-  check("a repo that returns after a gap gets its own row", gaps.length, 3);
-  check("no collapsed row spans the gap", gaps.every((r) => r.count === 1), true);
-
-  // N counts collapsed rows, so the cap is on what is shown, not on what is read.
-  const many = { events: Array.from({ length: 9 }, (_, i) => run(`r${i % 3}`, "refs/heads/main", 0, i)) };
-  check("N applies after collapsing", recentEvents(many, 2).length, 2);
-}
-
-check("repo id splits on the first slash", splitRepoId("did:key:zAbc/my-repo").name, "my-repo");
-check("repo id owner half", splitRepoId("did:key:zAbc/my-repo").owner, "did:key:zAbc");
-check("repo name keeps later slashes", splitRepoId("owner/a/b").name, "a/b");
-check("repo id with no slash", splitRepoId("bare").name, "bare");
-check("non-string repo id", splitRepoId(null).name, "");
 
 // --- the real snapshot ---------------------------------------------------
 // One pass over the committed file. Nothing here is an absolute number any more:

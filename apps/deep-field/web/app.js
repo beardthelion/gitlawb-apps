@@ -5,17 +5,17 @@
 // ticker would read as broken software. The accumulated totals are the story.
 //
 // Security posture: every string below (repo names, owner DIDs, capability
-// strings, ref names, peer hostnames) comes off a public network that anyone can
-// write to. None of it is trusted. There is no innerHTML anywhere in this file;
+// strings) comes off a public network that anyone can write to. None of it is
+// trusted. There is no innerHTML anywhere in this file;
 // text reaches the document through textContent and elements are created one at
 // a time. The only places a value influences markup rather than text are
 // numeric: a bar's style.width and the SVG path coordinates, both built from
 // numbers that came out of arithmetic in derive.js.
 
 import {
-  formatCount, formatUtc, dayLabel, truncateDid,
+  formatCount, formatUtc, dayLabel,
   dailyNewRepos, dailyFromPairs, cumulative, peakDay,
-  topOwners, topCapabilities, sortedPeers, recentEvents, splitRepoId,
+  topOwners, topCapabilities,
   topFamilies, repoActivity,
 } from "./lib/derive.js";
 import { renderTimelapse } from "./timelapse-canvas.js";
@@ -108,8 +108,8 @@ function renderCounters(s) {
   const days = Number(s.day_count) || 0;
   $("counter-note").textContent =
     `Everything here was built in ${formatCount(days)} days, starting ` +
-    `${dayLabel(s.day_base, 0)}. The push count is the node's own tally; the ` +
-    "ref-update list further down is a separate, much smaller gossip feed.";
+    `${dayLabel(s.day_base, 0)}. The push count is the node's own tally, which ` +
+    "is far larger than the gossip feed any single node overhears from its peers.";
 }
 
 // The tagline and the time-lapse progress bar carry the same figures as the
@@ -320,73 +320,6 @@ function renderCapabilities(s) {
     : "Every capability string in the snapshot is listed above.";
 }
 
-// --- peers ---------------------------------------------------------------
-
-function renderPeers(s) {
-  const host = $("peers");
-  const peers = sortedPeers(s);
-  const up = peers.filter((p) => p.reachable);
-  const down = peers.filter((p) => !p.reachable);
-
-  const group = (title, rows) => {
-    if (!rows.length) return;
-    host.append(node("h3", "peer-group-title", title));
-    const strip = node("div", "peer-strip");
-    for (const p of rows) {
-      const chip = node("div", `peer${p.reachable ? " up" : ""}`);
-      // Filled circle for answering, hollow for not. The glyph carries the
-      // state; the colour only reinforces it.
-      chip.append(node("span", "peer-mark", p.reachable ? "●" : "○"));
-      chip.append(node("span", null, p.label || "unknown"));
-      strip.append(chip);
-    }
-    host.append(strip);
-  };
-
-  group(`answering (${formatCount(up.length)})`, up);
-  group(`listed but not answering (${formatCount(down.length)})`, down);
-
-  const note = node("p", "fine");
-  note.textContent =
-    `${formatCount(peers.length)} peers are known to this node and ${formatCount(up.length)} ` +
-    "answered when the crawl ran. The rest are addresses the mesh still carries, which is " +
-    "what a gossip network looks like rather than a fault.";
-  host.append(note);
-}
-
-// --- events --------------------------------------------------------------
-
-function renderEvents(s) {
-  const host = $("events");
-  const rows = recentEvents(s, 12);
-  if (!rows.length) {
-    host.append(node("p", "fine", "The snapshot carries no ref updates."));
-    return;
-  }
-  for (const e of rows) {
-    const { owner, name } = splitRepoId(e.repo);
-    const row = node("div", "event");
-    row.append(node("span", `event-kind${e.created ? " created" : ""}`, e.created ? "create" : "update"));
-    row.append(node("span", "event-repo", name || e.repo));
-    // A collapsed run reads as a span, so it shows both ends rather than only
-    // the newest timestamp, which would make eleven pushes look like one. The
-    // comparison is on the formatted strings, not the raw ones: these land
-    // seconds apart, and "20:02 UTC to 20:02 UTC" is noise.
-    const newest = e.at ? formatUtc(e.at) : null;
-    const oldest = e.since ? formatUtc(e.since) : null;
-    const when = newest && oldest && oldest !== newest ? `${oldest} to ${newest}` : newest;
-    const meta = [
-      e.ref,
-      e.count > 1 ? `${formatCount(e.count)} pushes` : null,
-      owner ? `owner ${truncateDid(owner, 10, 6)}` : null,
-      e.pusher ? `pusher ...${e.pusher}` : null,
-      when,
-    ].filter(Boolean).join("  ·  ");
-    row.append(node("span", "event-meta", meta));
-    host.append(row);
-  }
-}
-
 // --- footer --------------------------------------------------------------
 
 function renderFooter(s) {
@@ -413,9 +346,7 @@ export async function boot() {
     renderGrowth(snapshot);
     renderOwners(snapshot);
     renderFamilies(snapshot);
-    renderPeers(snapshot);
     renderCapabilities(snapshot);
-    renderEvents(snapshot);
     renderFooter(snapshot);
   } catch (err) {
     // A snapshot that parsed but is shaped wrong lands here. Same rule: say it

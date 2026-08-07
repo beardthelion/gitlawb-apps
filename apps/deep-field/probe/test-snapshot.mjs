@@ -84,20 +84,12 @@ check("status counts sum to the total",
   s.agents.statuses.reduce((a, [, n]) => a + n, 0), s.agents.total);
 
 // --- peers ---------------------------------------------------------------
-check("peer rows length equals count", s.peers.rows.length, s.peers.count);
+// A summary only. The per-peer rows were dropped because explorer.gitlawb.com
+// already lists them, so the counters card is the whole consumer and these two
+// integers are everything it reads.
+check("peer count is a non-negative integer", Number.isInteger(s.peers.count) && s.peers.count >= 0, true);
+check("reachable is a non-negative integer", Number.isInteger(s.peers.reachable) && s.peers.reachable >= 0, true);
 check("reachable does not exceed count", s.peers.reachable <= s.peers.count, true);
-check("reachable matches the rows", s.peers.rows.filter((r) => r[1] === 1).length, s.peers.reachable);
-check("peer rows have 3 elements", s.peers.rows.every((r) => r.length === 3 && typeof r[0] === "string"), true);
-check("peer last-seen days are null or in range",
-  s.peers.rows.every((r) => r[2] === null || (Number.isInteger(r[2]) && r[2] >= 0 && r[2] < s.day_count)), true);
-
-// --- events --------------------------------------------------------------
-check("events capped at 200", s.events.length <= 200, true);
-check("event rows have 5 elements", s.events.every((e) => e.length === 5), true);
-check("event create flags are 0 or 1", s.events.every((e) => e[3] === 0 || e[3] === 1), true);
-check("pusher short ids are at most 8 chars", s.events.every((e) => e[1].length <= 8), true);
-check("no duplicate repo+timestamp event",
-  new Set(s.events.map((e) => `${e[0]}@${e[4]}`)).size, s.events.length);
 
 // --- bounds --------------------------------------------------------------
 // Everything above says the snapshot is well formed, which a badly wrong crawl
@@ -117,15 +109,12 @@ const longest = (arr, of) => arr.reduce((m, v) => Math.max(m, of(v).length), 0);
 
 under("day_count", s.day_count, 5000);                       // 149 days today, so ~13 years of headroom
 under("owners", s.owners.length, 200_000);                   // 1,357 today
-under("peer rows", s.peers.rows.length, 10_000);             // 73 today
+under("peers", s.peers.count, 10_000);                       // 73 today
 under("capability kinds", s.agents.capabilities.length, 1000); // 27 today
 
 under("longest repo name", longest(s.repos, (r) => r[0]), 256);            // 63 today
 under("longest owner did", longest(s.owners, (o) => o), 256);              // 56 today, did:key is fixed width
 under("longest capability", longest(s.agents.capabilities, (c) => c[0]), 128); // 30 today
-under("longest peer label", longest(s.peers.rows, (r) => r[0]), 256);      // 34 today
-under("longest ref name", longest(s.events, (e) => e[2]), 256);            // 20 today
-under("longest event repo id", longest(s.events, (e) => e[0]), 512);       // 80 today, a did plus a name
 
 // --- floors --------------------------------------------------------------
 // These were exact pins on the first crawl (3150 / 1357 / 4088 / 149). A daily
@@ -150,6 +139,6 @@ over("agents", s.agents.total, 4000);     // 4,088
 over("days", s.day_count, 149);           // 149, and this one only ever ticks up
 
 console.log(fail === 0
-  ? `\nall passed: ${s.repos.length} repos, ${s.owners.length} owners, ${s.agents.total} agents, ${s.peers.count} peers, ${s.events.length} events over ${s.day_count} days`
+  ? `\nall passed: ${s.repos.length} repos, ${s.owners.length} owners, ${s.agents.total} agents, ${s.peers.count} peers over ${s.day_count} days`
   : `\n${fail} FAILED`);
 process.exit(fail === 0 ? 0 : 1);

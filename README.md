@@ -66,6 +66,12 @@ viable after all; it is just bursty enough that a 7 minute window can show nothi
 all. The replay still comes first, because watching five months build is what makes the
 live view mean anything.
 
+The page no longer renders that gossip feed, or a per-peer strip. Both were per-row
+lists that [explorer.gitlawb.com](https://explorer.gitlawb.com) already does better, with
+drill-down this page deliberately does not offer, and between them they were 13.4% of a
+snapshot every visitor downloads. What is left is what this page is uniquely good at:
+aggregates and the time axis.
+
 The replay's clock is the interesting part. Activity is violently bursty: one day added
 978 repositories and many days added none. Giving every day equal time spends a third of
 the run on empty calendar; giving every arrival equal time hands that one day a third of
@@ -89,8 +95,9 @@ worth guarding against. Deploying stays manual, so a refreshed snapshot reaches
 the site on the next `wrangler deploy`.
 
 Two things the page says out loud, because both are easy to misread. The push count is
-the node's own tally, while the ref-update list is a separate gossip feed of 200 rows
-spanning a month, so it is not the network's recent activity. And repository owner DIDs
+the node's own tally, and it is far larger than the gossip feed any single node overhears
+from its peers, so the two are not different measurements of the same thing. And
+repository owner DIDs
 have no names: `/api/v1/resolve` answers only for peers and nodes, so the page truncates
 the identifier rather than inventing a label.
 

@@ -32,8 +32,7 @@ const base = () => ({
   owners: ["did:key:z1", "did:key:z2"],
   repos: [["a", 0, 0, 0, 0, 0], ["b", 1, 1, 1, 0, 0]],
   agents: { total: 4088, daily: [[0, 4088]], capabilities: [], statuses: [] },
-  peers: { count: 1, reachable: 1, rows: [["a.example", 1, 0]] },
-  events: [],
+  peers: { count: 1, reachable: 1 },
 });
 
 // Returns { code, out, err } instead of throwing, because the exit code is the
@@ -93,7 +92,6 @@ const field = (out, key) => {
   const prev = base();
   const next = base();
   next.generated_at = "2026-08-08T03:35:26.299Z";
-  next.peers.rows = [["a.example", 0, 1]];
   next.peers.reachable = 0;
   const r = run(prev, next);
   check("a content change with no count moving is a change", field(r.out, "changed"), "true");

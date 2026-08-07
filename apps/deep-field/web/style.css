@@ -337,59 +337,6 @@ section { margin-top: 2.6rem; }
 .row-bar-fill { height: 100%; background: var(--accent); display: block; }
 .row-bar-fill.alt { background: var(--accent2); }
 
-/* --- peers ------------------------------------------------------------- */
-
-.peer-group-title {
-  font-size: 0.76rem;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--dim);
-  margin: 1rem 0 0.5rem;
-}
-.peer-strip { display: flex; flex-wrap: wrap; gap: 0.35rem; }
-.peer {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  border: 1px solid var(--line);
-  border-radius: 3px;
-  padding: 0.15rem 0.5rem;
-  font-size: 0.78rem;
-  color: var(--dim);
-  max-width: 100%;
-  overflow-wrap: anywhere;
-}
-.peer.up { color: var(--fg); border-color: #23502f; }
-/* Filled versus hollow, so reachability survives a greyscale print. */
-.peer-mark { flex: none; }
-.peer.up .peer-mark { color: var(--win); }
-
-/* --- events ------------------------------------------------------------ */
-
-.events { display: flex; flex-direction: column; }
-.event {
-  display: grid;
-  grid-template-columns: 4.4rem minmax(0, 1fr);
-  gap: 0.1rem 0.7rem;
-  padding: 0.5rem 0;
-  border-bottom: 1px solid #161c1e;
-  font-size: 0.85rem;
-}
-.event-kind {
-  font-size: 0.66rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  border: 1px solid var(--line);
-  border-radius: 2px;
-  padding: 0.05rem 0.3rem;
-  text-align: center;
-  color: var(--dim);
-  align-self: start;
-}
-.event-kind.created { color: var(--win); border-color: #23502f; }
-.event-repo { overflow-wrap: anywhere; }
-.event-meta { grid-column: 2; font-size: 0.76rem; color: var(--dim); overflow-wrap: anywhere; }
-
 /* --- footer ------------------------------------------------------------ */
 
 footer {
@@ -404,5 +351,4 @@ a:hover { color: var(--accent); }
 
 @media (max-width: 420px) {
   main { padding: 2rem 0.9rem 2rem; }
-  .event { grid-template-columns: 4rem minmax(0, 1fr); }
 }
