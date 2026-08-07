@@ -16,7 +16,7 @@ import {
   formatCount, formatUtc, dayLabel,
   dailyNewRepos, dailyFromPairs, cumulative, peakDay,
   topOwners, topCapabilities,
-  topFamilies, repoActivity,
+  topFamilies, repoActivity, ownerLifetimeSummary,
   activitySummary, cellIntensity, weekdayLabel, weekdayName, hourLabel, batchLabel,
 } from "./lib/derive.js";
 import { renderTimelapse } from "./timelapse-canvas.js";
@@ -486,6 +486,81 @@ function renderPunchcard(s) {
     `${a.emptyCells === 1 ? "is" : "are"} empty.`;
 }
 
+// --- owner lifetime ------------------------------------------------------
+
+// Two groups of proportional rows over one derivation. The bars carry different
+// quantities on purpose: the span rows are a share of all owners, so the reader
+// can see how lopsided the distribution is, while the size rows are a return
+// rate, which is already a 0-to-1 number and would be flattened into nothing if
+// it were drawn against the group sizes instead.
+function renderLifetime(s) {
+  const m = ownerLifetimeSummary(s);
+  const pct = (x) => `${Math.round(x * 100)}%`;
+
+  const spans = $("lifetime-spans");
+  for (const b of m.spanBuckets) {
+    const share = (b.share * 100).toFixed(1);
+    const who = b.owners === 1 ? "owner" : "owners";
+    const row = barRow(b.label, `${formatCount(b.owners)} ${who}, ${share}%`, b.fraction);
+    // Marks the rows whose bar must stay at zero width. Everything else gets a
+    // minimum width in CSS, because four of these five buckets are under two
+    // percent and would otherwise render as nothing at all.
+    if (b.owners === 0) row.classList.add("empty-row");
+    spans.append(row);
+  }
+
+  const split = $("lifetime-split");
+  split.append(node("strong", null,
+    `${formatCount(m.oneDay)} of the ${formatCount(m.total)} owners, ` +
+    `${(m.oneDayShare * 100).toFixed(1)}%, created every repository they own on a single day`));
+  split.append(document.createTextNode(
+    `. ${formatCount(m.returning)} ever came back on a later day, and ${formatCount(m.single)} owners ` +
+    `hold exactly one repository at all. The median gap between an owner's first repository and their ` +
+    `last is ${formatCount(m.medianSpan)} days, the ninetieth percentile is ${formatCount(m.p90Span)}, ` +
+    `and the widest anyone reaches is ${formatCount(m.maxSpan)}. This is a network of visitors rather ` +
+    "than a working population. Nine owners in ten turn up once, create something and are never seen " +
+    "again, which is the same network that produced 219 separate my-first-repo repositories."));
+
+  const seedNames = m.seedingDays.map((d) => dayLabel(s.day_base, d)).join(" and ");
+  const allRates = m.bySize.map((b) => pct(b.rate)).join(", ");
+  // Whether the all-repos table dips is a property of the current crawl, not a
+  // fact, so it is read off the numbers rather than asserted. A sentence that
+  // hardcoded "dips in the middle" would keep saying so after a crawl where it
+  // no longer did, which is exactly how the families section came to claim
+  // something the data had stopped supporting.
+  const allRising = m.bySize.every((b, i) => i === 0 || b.rate >= m.bySize[i - 1].rate);
+  const extra = m.bySize[2].owners - m.bySizeOffSeed[2].owners;
+  $("lifetime-size-note").textContent =
+    "Owners grouped by how many repositories they hold, and the share of each group that ever came " +
+    "back. The rate climbs with size, but only once the seeding days are out of the grouping. Counted " +
+    `over every repository the same four groups run ${allRates}, ` +
+    (allRising
+      ? "which happens to climb as well on this crawl. "
+      : "which dips in the middle rather than climbing. ") +
+    `The seeding days on their own put ${formatCount(extra)} extra owners into the 4 to 10 group, ` +
+    "and the bars below leave those days out.";
+
+  const sizes = $("lifetime-sizes");
+  for (const b of m.bySizeOffSeed) {
+    const row = barRow(b.label,
+      `${formatCount(b.owners)} owners, ${formatCount(b.returned)} came back, ${pct(b.rate)}`,
+      b.rate, true);
+    if (b.returned === 0) row.classList.add("empty-row");
+    sizes.append(row);
+  }
+
+  $("lifetime-limits").textContent =
+    "Three limits worth stating. The snapshot records UTC calendar days rather than timestamps, so an " +
+    "owner working across midnight reads as two days and an owner working twice in one afternoon reads " +
+    `as one. The grouping above leaves out ${seedNames}, the seeding runs the punchcard already drops, ` +
+    `and ${formatCount(m.seedingOnlyOwners)} owners exist only because of them; the headline holds ` +
+    `either way, ${(m.oneDayShare * 100).toFixed(1)}% one-day counting every repository and ` +
+    `${(m.offSeedOneDayShare * 100).toFixed(1)}% with those days removed. And never seen again means ` +
+    "never created another repository. It does not mean they stopped pushing to the one they have: the " +
+    "snapshot carries a last-updated day per repository that would speak to that, and this section " +
+    "does not use it.";
+}
+
 function renderCapabilities(s) {
   const host = $("caps");
   const { top, tailKinds, tailClaims } = topCapabilities(s.agents?.capabilities, 6);
@@ -523,6 +598,7 @@ export async function boot() {
     renderOwners(snapshot);
     renderFamilies(snapshot);
     renderPunchcard(snapshot);
+    renderLifetime(snapshot);
     renderCapabilities(snapshot);
     renderFooter(snapshot);
   } catch (err) {

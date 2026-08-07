@@ -25,6 +25,8 @@ import {
   weekdayLabel, weekdayName, hourLabel, batchLabel,
   activityGrid, hourTotals, weekdayTotals, gridExtremes, seriesExtremes,
   cellIntensity, activitySummary,
+  batchDayIndex, seedingDays, spanBucketKey, SIZE_BUCKETS,
+  ownerLifetimes, ownerLifetimeSummary,
 } from "../lib/derive.js";
 
 // An optional path argument, matching test-snapshot.mjs, so a candidate snapshot
@@ -483,6 +485,209 @@ check("activity ignores malformed rows", repoActivity({ repos: ["x", null] }).st
     activitySummary({ activity: { grid: g, batches: [["2026-03-13T01", 971], "junk", ["x", 1.5]], counted: 76, excluded: 971 } }).batches.length, 1);
 }
 
+// --- owner lifetime ------------------------------------------------------
+// The section this feeds makes two claims that boundaries decide: which span
+// bucket an owner falls into, and which owners the return-rate table drops. Both
+// are pinned in both directions below.
+
+// The batch keys are clock-hours and the repo rows are day indexes, so the fold
+// from one to the other is the joint between two different units and the place a
+// silent off-by-one would hide. These are the two hours the committed snapshot
+// carries.
+check("a batch hour early in a day folds to that day", batchDayIndex("2026-03-12", "2026-03-13T01"), 1);
+check("a batch hour a month later folds to its day", batchDayIndex("2026-03-12", "2026-04-16T03"), 35);
+check("the day base itself is day 0", batchDayIndex("2026-03-12", "2026-03-12T00"), 0);
+// floor, not round. 23:00 is still the same day, and a rounding fold would push
+// every hour after noon onto the next one.
+check("the last hour of a day is still that day", batchDayIndex("2026-03-12", "2026-03-12T23"), 0);
+check("an hour before the day base is negative", batchDayIndex("2026-03-12", "2026-03-11T05"), -1);
+check("a batch key that is not an hour key", batchDayIndex("2026-03-12", "nonsense"), null);
+check("a batch key with a bad day base", batchDayIndex("nope", "2026-03-13T01"), null);
+check("a non-string batch key", batchDayIndex("2026-03-12", null), null);
+
+check("seeding days come off the batch list",
+  seedingDays({ day_base: "2026-03-12", activity: { batches: [["2026-03-13T01", 971], ["2026-04-16T03", 102]] } }).join(","),
+  "1,35");
+// Two batch hours on one calendar day are one excluded day, not two.
+check("two batch hours on one day collapse to one",
+  seedingDays({ day_base: "2026-03-12", activity: { batches: [["2026-03-13T01", 9], ["2026-03-13T14", 9]] } }).join(","),
+  "1");
+check("seeding days are sorted",
+  seedingDays({ day_base: "2026-03-12", activity: { batches: [["2026-04-16T03", 1], ["2026-03-13T01", 1]] } }).join(","),
+  "1,35");
+check("a snapshot with no batches excludes nothing",
+  seedingDays({ day_base: "2026-03-12", activity: { batches: [] } }).length, 0);
+check("a snapshot with no activity block excludes nothing", seedingDays({}).length, 0);
+check("a malformed batch entry is dropped, not counted as a day",
+  seedingDays({ day_base: "2026-03-12", activity: { batches: ["junk", ["2026-03-13T01", 1], [null, 2]] } }).join(","),
+  "1");
+check("a batch before the day base is not an excluded day",
+  seedingDays({ day_base: "2026-03-12", activity: { batches: [["2026-03-11T01", 1]] } }).length, 0);
+
+check("span 0 is the same-day bucket", spanBucketKey(0), "same");
+// The six boundaries. Every bound is inclusive and the next bucket starts at
+// bound + 1, so these six lines are what a widened or narrowed bucket reds.
+check("span of exactly 7 is within a week", spanBucketKey(7), "week");
+check("span of exactly 8 is one to four weeks", spanBucketKey(8), "weeks");
+check("span of exactly 30 is one to four weeks", spanBucketKey(30), "weeks");
+check("span of exactly 31 is one to three months", spanBucketKey(31), "months");
+check("span of exactly 90 is one to three months", spanBucketKey(90), "months");
+check("span of exactly 91 is over three months", spanBucketKey(91), "longer");
+check("span of 1 is within a week", spanBucketKey(1), "week");
+check("a negative span has no bucket", spanBucketKey(-1), null);
+check("a non-numeric span has no bucket", spanBucketKey(null), null);
+
+{
+  // Ten owners, each one a case. Day 1 is the seeding day, set from the batch
+  // list rather than written into the fixture as a number.
+  const life = (name, owner, day) => [name, owner, day, day, 0, 0];
+  const LIFE = {
+    day_base: "2026-03-12",
+    activity: { batches: [["2026-03-13T01", 2]] },
+    repos: [
+      life("solo", 0, 0),                                        // one repo
+      life("burst1", 1, 2), life("burst2", 1, 2), life("burst3", 1, 2), // several, one day
+      life("wk-a", 2, 2), life("wk-b", 2, 9),                    // span 7
+      life("m4-a", 3, 0), life("m4-b", 3, 8),                    // span 8
+      life("m30-a", 4, 0), life("m30-b", 4, 30),                 // span 30
+      life("m31-a", 5, 0), life("m31-b", 5, 31),                 // span 31
+      life("q90-a", 6, 0), life("q90-b", 6, 90),                 // span 90
+      life("q91-a", 7, 0), life("q91-b", 7, 91),                 // span 91
+      // Out of day order in the array, which is how the crawl actually pages
+      // them: an updated_at ordering is not a created ordering. A first/last
+      // that trusted array order would read 5 and 3 here and report span -2.
+      life("ooo-a", 8, 5), life("ooo-b", 8, 1), life("ooo-c", 8, 3),
+      // Exists only because of the seeding day.
+      life("seed-a", 9, 1), life("seed-b", 9, 1),
+      // Unusable rows. A null day would make `first` null, and every later
+      // comparison against null is false, which reads as a valid span of 0.
+      ["bad-owner", null, 4, 4, 0, 0],
+      ["bad-owner-float", 1.5, 4, 4, 0, 0],
+      ["bad-day", 0, null, 0, 0, 0],
+      ["bad-day-float", 0, 2.5, 2, 0, 0],
+      "not-a-row",
+    ],
+  };
+  const { owners } = ownerLifetimes(LIFE);
+  const by = (i) => owners.find((o) => o.owner === i);
+  check("one row per owner, malformed rows excluded", owners.length, 10);
+  check("owner rows are in owner order", owners.every((o, i) => i === 0 || o.owner > owners[i - 1].owner), true);
+
+  check("a single-repo owner has one repo", by(0).count, 1);
+  check("a single-repo owner spans zero days", by(0).span, 0);
+  check("a single-repo owner first and last are the same day", by(0).first === by(0).last, true);
+  check("an unusable day does not attach to an owner", by(0).count, 1);
+
+  check("several repos on one day still count", by(1).count, 3);
+  check("several repos on one day span zero", by(1).span, 0);
+
+  check("an owner who returns has the later day as last", by(2).last, 9);
+  check("an owner who returns keeps the earlier day as first", by(2).first, 2);
+  check("an owner who returns has a positive span", by(2).span, 7);
+
+  check("out-of-order rows take the earliest day as first", by(8).first, 1);
+  check("out-of-order rows take the latest day as last", by(8).last, 5);
+  check("out-of-order rows produce a non-negative span", by(8).span, 4);
+  check("out-of-order rows are all counted", by(8).count, 3);
+
+  check("a seeding-only owner still holds their repos", by(9).count, 2);
+  check("a seeding-only owner has nothing left off the seeding day", by(9).offSeed, 0);
+  check("a seeding-day repo is not subtracted from the plain count", by(8).count, 3);
+  check("the seeding day comes off the off-seed count", by(8).offSeed, 2);
+  check("an owner with nothing on a seeding day is unchanged", by(2).offSeed, by(2).count);
+
+  const m = ownerLifetimeSummary(LIFE);
+  check("owner total", m.total, 10);
+  check("one-day owners counted", m.oneDay, 3);
+  check("returning owners are the rest", m.returning, 7);
+  check("one-day share", m.oneDayShare, 0.3);
+  check("owners holding exactly one repository", m.single, 1);
+
+  check("span buckets", m.spanBuckets.map((b) => `${b.key}:${b.owners}`).join(","),
+    "same:3,week:2,weeks:2,months:2,longer:1");
+  // Every owner lands in exactly one span bucket, so the five counts are the
+  // owner list re-partitioned and nothing else.
+  check("span buckets partition the owners",
+    m.spanBuckets.reduce((a, b) => a + b.owners, 0), m.total);
+  check("the biggest span bucket draws a full bar",
+    m.spanBuckets.find((b) => b.key === "same").fraction, 1);
+  check("a small span bucket keeps its real proportion",
+    m.spanBuckets.find((b) => b.key === "longer").fraction, 1 / 3);
+  check("span bucket share is of all owners",
+    m.spanBuckets.find((b) => b.key === "same").share, 0.3);
+
+  // spans sorted: 0,0,0,4,7,8,30,31,90,91
+  check("median span is the nearest-rank middle", m.medianSpan, 8);
+  check("p90 span", m.p90Span, 91);
+  check("max span", m.maxSpan, 91);
+
+  check("return rate by size, every repo",
+    m.bySize.map((b) => `${b.key}:${b.owners}/${b.returned}`).join(","),
+    "one:1/0,few:9/7,some:0/0,many:0/0");
+  check("size buckets partition the owners",
+    m.bySize.reduce((a, b) => a + b.owners, 0), m.total);
+  check("nobody is counted in two size buckets",
+    m.bySize.every((b) => b.returned <= b.owners), true);
+  check("an empty size bucket has a zero rate, not a division by zero",
+    m.bySize.find((b) => b.key === "some").rate, 0);
+  check("return rate is returned over owners", m.bySize.find((b) => b.key === "few").rate, 7 / 9);
+
+  // The exclusion: owner 9 disappears entirely, owner 8 drops from 3 repos to 2
+  // and so stays in the same bucket here. On the real snapshot this is the whole
+  // difference between a non-monotonic table and a monotonic one.
+  check("the seeding day drops the owners who only appeared on it", m.seedingOnlyOwners, 1);
+  check("off-seed owner total", m.offSeedTotal, 9);
+  check("return rate by size, seeding day excluded",
+    m.bySizeOffSeed.map((b) => `${b.key}:${b.owners}/${b.returned}`).join(","),
+    "one:1/0,few:8/7,some:0/0,many:0/0");
+  check("off-seed size buckets partition the off-seed owners",
+    m.bySizeOffSeed.reduce((a, b) => a + b.owners, 0), m.offSeedTotal);
+  check("the excluded day is reported", m.seedingDays.join(","), "1");
+  check("one-day owners among the off-seed owners", m.offSeedOneDay, 2);
+  check("off-seed one-day share", m.offSeedOneDayShare, 2 / 9);
+  // The exclusion must not touch first, last or span. An owner who only ever
+  // appeared during the seeding run genuinely is a one-day owner.
+  check("the headline still counts the seeding-only owners", m.oneDay > m.offSeedOneDay, true);
+
+  // One owner per size bucket, so all four rows are exercised rather than the two
+  // the fixture above happens to reach.
+  const many = [];
+  for (let i = 0; i < 11; i++) many.push(life(`many${i}`, 3, 0));
+  const SIZES = {
+    day_base: "2026-03-12",
+    repos: [
+      life("s1", 0, 0),
+      life("s2a", 1, 0), life("s2b", 1, 0), life("s2c", 1, 0),
+      ...Array.from({ length: 10 }, (_, i) => life(`s3-${i}`, 2, 0)),
+      ...many,
+    ],
+  };
+  const sizes = ownerLifetimeSummary(SIZES);
+  check("every size bucket holds exactly its one owner",
+    sizes.bySize.map((b) => b.owners).join(","), "1,1,1,1");
+  check("ten repos is the top of the 4 to 10 bucket",
+    sizes.bySize.find((b) => b.key === "some").owners, 1);
+  check("eleven repos is the bottom of the 11 or more bucket",
+    sizes.bySize.find((b) => b.key === "many").owners, 1);
+  check("size buckets still partition with all four occupied",
+    sizes.bySize.reduce((a, b) => a + b.owners, 0), sizes.total);
+  check("size bucket ranges are contiguous with no gap",
+    SIZE_BUCKETS.every((b, i) => i === 0 || b.min === SIZE_BUCKETS[i - 1].max + 1), true);
+  check("no snapshot batches means no exclusion", sizes.seedingOnlyOwners, 0);
+}
+
+check("owner lifetimes on an empty repo list", ownerLifetimes({ repos: [] }).owners.length, 0);
+check("owner lifetimes on an empty snapshot", ownerLifetimes({}).owners.length, 0);
+check("summary of an empty snapshot has no owners", ownerLifetimeSummary({}).total, 0);
+check("an empty snapshot reports a zero one-day share", ownerLifetimeSummary({}).oneDayShare, 0);
+check("an empty snapshot still returns every span bucket",
+  ownerLifetimeSummary({}).spanBuckets.length, 5);
+check("an empty snapshot still returns every size bucket",
+  ownerLifetimeSummary({}).bySize.length, 4);
+check("an empty snapshot has a zero max span", ownerLifetimeSummary({}).maxSpan, 0);
+check("a snapshot of nothing but malformed rows",
+  ownerLifetimeSummary({ repos: [null, "x", [1, 2]] }).total, 0);
+
 // --- the real snapshot ---------------------------------------------------
 // One pass over the committed file. Nothing here is an absolute number any more:
 // crawl.mjs exists to be re-run, and pinning 3,150 and 4,088 in three files meant
@@ -541,6 +746,39 @@ check("activity ignores malformed rows", repoActivity({ repos: ["x", null] }).st
     pc.grid.every((r) => r.every((v) => v <= pc.peakCell.count)), true);
   check("snapshot daily swing is at least double", pc.swing >= 2, true);
   check("snapshot weekdays outpace weekends", pc.weekdayMean > pc.weekendMean, true);
+
+  // Owner lifetime against the real file. Absolute counts stay out for the same
+  // reason as everywhere else here, but the partitions and the exclusion's
+  // direction hold on any crawl, and the monotonic climb is the claim the
+  // section rests on: without it the by-size table says nothing.
+  const life = ownerLifetimeSummary(s);
+  check("snapshot lifetime owners match the owner list", life.total, s.owners.length);
+  check("snapshot span buckets partition the owners",
+    life.spanBuckets.reduce((a, b) => a + b.owners, 0), life.total);
+  check("snapshot size buckets partition the owners",
+    life.bySize.reduce((a, b) => a + b.owners, 0), life.total);
+  check("snapshot off-seed size buckets partition the off-seed owners",
+    life.bySizeOffSeed.reduce((a, b) => a + b.owners, 0), life.offSeedTotal);
+  check("snapshot off-seed owners plus seeding-only owners is every owner",
+    life.offSeedTotal + life.seedingOnlyOwners, life.total);
+  check("snapshot one-day and returning owners are every owner",
+    life.oneDay + life.returning, life.total);
+  check("snapshot returns never exceed the bucket",
+    life.bySize.every((b) => b.returned <= b.owners), true);
+  check("snapshot spans are never negative", life.owners.every((o) => o.span >= 0), true);
+  check("snapshot off-seed counts never exceed the plain counts",
+    life.owners.every((o) => o.offSeed <= o.count), true);
+  check("snapshot excluded days come from the batch list",
+    life.seedingDays.length, seedingDays(s).length);
+  // The finding: nine owners in ten never came back, and the return rate climbs
+  // with size only once the seeding day is out.
+  check("snapshot has most owners on a single day", life.oneDayShare > 0.9, true);
+  check("snapshot headline survives the exclusion", life.offSeedOneDayShare > 0.9, true);
+  check("snapshot return rate is monotonic once the seeding day is excluded",
+    life.bySizeOffSeed.every((b, i) => i === 0 || b.rate >= life.bySizeOffSeed[i - 1].rate), true);
+  // And that the exclusion is doing something, or the whole named choice is
+  // dead code that nobody would notice rotting.
+  check("snapshot seeding day actually removes owners", life.seedingOnlyOwners > 0, true);
 
   const act = repoActivity(s);
   check("snapshot activity total is the repo count", act.total, s.repos.length);

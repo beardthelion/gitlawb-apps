@@ -428,6 +428,22 @@ section { margin-top: 2.6rem; }
 .row-bar-fill { height: 100%; background: var(--accent); display: block; }
 .row-bar-fill.alt { background: var(--accent2); }
 
+/* --- owner lifetime ---------------------------------------------------- */
+
+/* 1,266 of 1,357 owners sit in one bucket, so the other four measure 4.1%, 1.5%,
+   1.1% and 0.08% of the widest bar. At 300px of track that last one is a quarter
+   of a pixel and renders as an empty row. The floor makes every non-empty bucket
+   a visible mark; the count beside it is the number to read. Rows that really are
+   zero opt out, or the floor would draw a bucket nobody is in. */
+#lifetime-spans .row-bar-fill,
+#lifetime-sizes .row-bar-fill { min-width: 3px; }
+#lifetime-spans .row.empty-row .row-bar-fill,
+#lifetime-sizes .row.empty-row .row-bar-fill { min-width: 0; }
+
+/* The second group opens a new list under the same heading, so it needs the gap
+   a section would have given it. */
+#lifetime-size-heading { margin-top: 2.2rem; }
+
 /* --- footer ------------------------------------------------------------ */
 
 footer {

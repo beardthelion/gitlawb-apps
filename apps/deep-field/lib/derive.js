@@ -449,6 +449,199 @@ export function activitySummary(snapshot) {
   };
 }
 
+// --- owner lifetime ------------------------------------------------------
+
+// Which day indexes hold a seeding run, read off the snapshot's own batch list
+// rather than written down here. The batch keys are clock-hours
+// ("2026-03-13T01"), the repo rows carry day indexes, so the hour has to be
+// folded to a day before the two can be compared. Measured on the committed
+// snapshot: 13 Mar 2026 01:00 is day 1 and 16 Apr 2026 03:00 is day 35.
+//
+// Returns null on anything unparseable, so a malformed key drops out of the set
+// instead of poisoning it with NaN, which no `has` would ever match anyway but
+// which would show up in the sentence the page prints.
+export function batchDayIndex(dayBase, key) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2})$/.exec(typeof key === "string" ? key : "");
+  const base = dayBaseMs(dayBase);
+  if (!m || base === null) return null;
+  const t = Date.parse(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:00:00Z`);
+  if (!Number.isFinite(t)) return null;
+  // floor, not round: an hour key later in the day must stay on that day.
+  return Math.floor((t - base) / DAY_MS);
+}
+
+// Sorted, de-duplicated day indexes covered by a seeding batch. Two batch hours
+// on one calendar day collapse to one entry, which is why this is a Set.
+export function seedingDays(snapshot) {
+  const batches = Array.isArray(snapshot?.activity?.batches) ? snapshot.activity.batches : [];
+  const days = new Set();
+  for (const b of batches) {
+    if (!Array.isArray(b)) continue;
+    const d = batchDayIndex(snapshot?.day_base, b[0]);
+    if (Number.isInteger(d) && d >= 0) days.add(d);
+  }
+  return [...days].sort((a, b) => a - b);
+}
+
+// How far apart an owner's first and last repository are, in days, bucketed.
+// `max` is inclusive and the buckets are checked in order, so a span of exactly
+// 7 is "within a week" and exactly 8 is the next one up. Boundaries matter here
+// more than usual: 93% of owners sit in the first bucket, so a bucket that
+// silently swallowed one more day would be invisible on the chart.
+export const SPAN_BUCKETS = [
+  { key: "same", label: "same day", max: 0 },
+  { key: "week", label: "within a week", max: 7 },
+  { key: "weeks", label: "one to four weeks", max: 30 },
+  { key: "months", label: "one to three months", max: 90 },
+  { key: "longer", label: "over three months", max: Infinity },
+];
+
+// Repos held, bucketed. Both bounds inclusive, and the ranges are contiguous
+// with no gap, so every owner holding at least one repository lands in exactly
+// one row and the four counts sum back to the owner total.
+export const SIZE_BUCKETS = [
+  { key: "one", label: "1 repository", min: 1, max: 1 },
+  { key: "few", label: "2 to 3", min: 2, max: 3 },
+  { key: "some", label: "4 to 10", min: 4, max: 10 },
+  { key: "many", label: "11 or more", min: 11, max: Infinity },
+];
+
+export function spanBucketKey(span) {
+  if (!Number.isFinite(span) || span < 0) return null;
+  for (const b of SPAN_BUCKETS) if (span <= b.max) return b.key;
+  return null;
+}
+
+// One row per owner: the first and last day they created anything, the gap
+// between them, and how many repositories they hold.
+//
+// `offSeed` is the same count with the seeding days removed, and it exists
+// because those days are what make the return-rate table lie. It is a second
+// count rather than a filter over the whole function on purpose: first, last and
+// span stay computed over every repository, because an owner who only ever
+// appeared during a seeding run really is a one-day owner and dropping them
+// would overstate how engaged the network is.
+//
+// Rows with a non-integer owner index or creation day are skipped entirely. A
+// row whose day is null would otherwise make `first` null and every comparison
+// against it false, which reads as a valid span of 0.
+export function ownerLifetimes(snapshot) {
+  const repos = Array.isArray(snapshot?.repos) ? snapshot.repos : [];
+  const seeding = new Set(seedingDays(snapshot));
+  const byOwner = new Map();
+  for (const r of repos) {
+    if (!Array.isArray(r)) continue;
+    const owner = r[1];
+    const day = r[2];
+    if (!Number.isInteger(owner) || owner < 0 || !Number.isInteger(day) || day < 0) continue;
+    let e = byOwner.get(owner);
+    if (!e) {
+      e = { owner, first: day, last: day, count: 0, offSeed: 0 };
+      byOwner.set(owner, e);
+    }
+    // Rows arrive in whatever order the crawl paged them, which is not day
+    // order, so both ends are compared rather than assumed.
+    if (day < e.first) e.first = day;
+    if (day > e.last) e.last = day;
+    e.count++;
+    if (!seeding.has(day)) e.offSeed++;
+  }
+  const owners = [...byOwner.values()].map((e) => ({ ...e, span: e.last - e.first }));
+  // Owner index order, so two runs over the same snapshot produce the same rows.
+  owners.sort((a, b) => a.owner - b.owner);
+  return { owners, seedingDays: [...seeding].sort((a, b) => a - b) };
+}
+
+// Nearest-rank quantile over an ascending array. Used on spans, where the answer
+// is 0 for everything below the 93rd percentile, so an interpolating definition
+// would report a fractional day that no owner has.
+function quantile(sorted, q) {
+  if (sorted.length === 0) return 0;
+  return sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))];
+}
+
+// Owners bucketed by how many repositories they hold, with the share of each
+// bucket that ever came back on a later day. `sizeOf` picks which count to
+// bucket on, which is the whole reason this is a function: the same owners get
+// bucketed twice, once by their full count and once with the seeding days out.
+function returnBySize(owners, sizeOf) {
+  return SIZE_BUCKETS.map((b) => {
+    const rows = owners.filter((o) => {
+      const n = sizeOf(o);
+      return n >= b.min && n <= b.max;
+    });
+    const returned = rows.filter((o) => o.span > 0).length;
+    return {
+      key: b.key,
+      label: b.label,
+      owners: rows.length,
+      returned,
+      rate: rows.length > 0 ? returned / rows.length : 0,
+    };
+  });
+}
+
+// Everything the owner-lifetime section prints.
+//
+// Measured on the committed snapshot: 1,266 of 1,357 owners created every
+// repository they own on one day, and only 91 ever came back. The return rate
+// climbs with how much an owner built, but only in `bySizeOffSeed`; counted over
+// every repository the table runs 0%, 23%, 13%, 70%, and that dip in the middle
+// is the seeding run putting 152 owners into the 4-to-10 bucket who never built
+// anything outside it.
+export function ownerLifetimeSummary(snapshot) {
+  const { owners, seedingDays: seeded } = ownerLifetimes(snapshot);
+  const total = owners.length;
+  const oneDay = owners.filter((o) => o.span === 0).length;
+  const single = owners.filter((o) => o.count === 1).length;
+
+  const counts = new Map(SPAN_BUCKETS.map((b) => [b.key, 0]));
+  for (const o of owners) {
+    const k = spanBucketKey(o.span);
+    if (k !== null) counts.set(k, counts.get(k) + 1);
+  }
+  const maxBucket = Math.max(...counts.values(), 1);
+  const spanBuckets = SPAN_BUCKETS.map((b) => ({
+    key: b.key,
+    label: b.label,
+    owners: counts.get(b.key),
+    // Two different denominators, same as the owners section: `share` is of all
+    // owners and is what the sentence quotes, `fraction` is against the biggest
+    // bucket and is what the bar draws.
+    share: total > 0 ? counts.get(b.key) / total : 0,
+    fraction: counts.get(b.key) / maxBucket,
+  }));
+
+  const spans = owners.map((o) => o.span).sort((a, b) => a - b);
+  // Owners with at least one repository outside a seeding day. The rest exist
+  // only because of the seeding run and are what distorts the table.
+  const offSeedOwners = owners.filter((o) => o.offSeed > 0);
+  const offSeedOneDay = offSeedOwners.filter((o) => o.span === 0).length;
+
+  return {
+    owners,
+    total,
+    oneDay,
+    returning: total - oneDay,
+    oneDayShare: total > 0 ? oneDay / total : 0,
+    single,
+    singleShare: total > 0 ? single / total : 0,
+    spanBuckets,
+    medianSpan: quantile(spans, 0.5),
+    p90Span: quantile(spans, 0.9),
+    maxSpan: spans.length > 0 ? spans[spans.length - 1] : 0,
+    bySize: returnBySize(owners, (o) => o.count),
+    bySizeOffSeed: returnBySize(offSeedOwners, (o) => o.offSeed),
+    seedingDays: seeded,
+    // How many owners vanish once the seeding days come out. The exclusion is
+    // only defensible if the page can say what it cost.
+    seedingOnlyOwners: total - offSeedOwners.length,
+    offSeedTotal: offSeedOwners.length,
+    offSeedOneDay,
+    offSeedOneDayShare: offSeedOwners.length > 0 ? offSeedOneDay / offSeedOwners.length : 0,
+  };
+}
+
 // Stars, forks, and repos never touched after the day they appeared.
 //
 // `updated` and `created` are day indexes, not timestamps (see crawl.mjs), so
