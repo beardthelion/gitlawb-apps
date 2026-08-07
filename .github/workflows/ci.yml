@@ -24,6 +24,11 @@ jobs:
       - name: Leaderboard rules (scoring, validation, provenance, rate limiting)
         run: node api/lib/leaderboard.test.mjs
 
+      # Upstream is an injected fake, so this runs offline and does not go red
+      # when node.gitlawb.com is down.
+      - name: Node proxy (allowlist, limit bounds, cache, upstream failures)
+        run: node api/lib/net-proxy.test.mjs
+
       - name: Proof of work, optimized solver
         run: node apps/beat-the-bot/probe/test-pow-fast.mjs
 

@@ -5,6 +5,7 @@
 // and separately tested.
 
 import { proxyIcaptcha, DEFAULT_UPSTREAM } from "../api/lib/icaptcha-proxy.js";
+import { proxyNet, DEFAULT_UPSTREAM as NODE_UPSTREAM } from "../api/lib/net-proxy.js";
 import { getVerifyKey, verifyProof } from "../api/lib/proof.js";
 import {
   validateRun, normalizeTrack, normalizeLabel, percentile, MAX_LEVEL,
@@ -394,6 +395,12 @@ function apiIndex() {
       { method: "GET", path: "/api/leaderboard" },
       { method: "GET", path: "/api/ledger.jsonl" },
       { method: "GET", path: "/api/stats" },
+      // Read-only, cached mirror of node.gitlawb.com for the Push Wall. An
+      // allowlist, not a forwarder: nothing else on the node is reachable here.
+      { method: "GET", path: "/api/net/stats" },
+      { method: "GET", path: "/api/net/peers" },
+      { method: "GET", path: "/api/net/repos", query: ["limit (max 200)"] },
+      { method: "GET", path: "/api/net/events/ref-updates", query: ["limit (max 200)"] },
     ],
   });
 }
@@ -455,6 +462,18 @@ export default {
         } catch { /* latency accounting is not worth failing a request over */ }
       }
 
+      return json(body, status);
+    }
+
+    // The Push Wall's live layer. Cached server side, so a hundred open tabs are
+    // still at most one request per isolate per 30s to the node.
+    if (pathname.startsWith("/api/net/")) {
+      const { status, body } = await proxyNet(
+        pathname.slice("/api/net/".length),
+        request.method,
+        url.searchParams,
+        env.NODE_URL ?? NODE_UPSTREAM,
+      );
       return json(body, status);
     }
 

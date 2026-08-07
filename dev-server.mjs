@@ -10,6 +10,7 @@ import { join, extname, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { dirname } from "node:path";
 import { proxyIcaptcha } from "./api/lib/icaptcha-proxy.js";
+import { proxyNet } from "./api/lib/net-proxy.js";
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT ?? 5173);
@@ -60,6 +61,20 @@ const server = createServer(async (req, res) => {
       req.method,
       Buffer.concat(chunks).toString("utf8"),
       process.env.ICAPTCHA_URL,
+    );
+    res.writeHead(status, { "content-type": "application/json" });
+    res.end(JSON.stringify(body));
+    return;
+  }
+
+  // Same module and same 30s cache as the worker, so local and deployed
+  // behaviour cannot drift.
+  if (url.pathname.startsWith("/api/net/")) {
+    const { status, body } = await proxyNet(
+      url.pathname.slice("/api/net/".length),
+      req.method,
+      url.searchParams,
+      process.env.NODE_URL,
     );
     res.writeHead(status, { "content-type": "application/json" });
     res.end(JSON.stringify(body));
