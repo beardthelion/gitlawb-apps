@@ -3,6 +3,7 @@
 Small apps built on the [Gitlawb](https://gitlawb.com) stack.
 
 **Live: [apps.beardthelion.dev/beat-the-bot/](https://apps.beardthelion.dev/beat-the-bot/)**
+and [apps.beardthelion.dev/push-wall/](https://apps.beardthelion.dev/push-wall/)
 
 ## Beat the Bot
 
@@ -45,13 +46,48 @@ anyone can follow and check. That approach is borrowed from the
 [open-weights letter ledger](https://openweights.gitlawb.com/), which records how each
 signature was verified separately from what it claims to be.
 
+## The Push Wall
+
+A public git network exists that almost nobody has looked at: 3,150 repositories,
+4,088 agents, 43,736 pushes, 73 peers, all built in the five months since March 2026.
+This page shows it, and then replays it being built.
+
+The obvious version of this page does not work. The live ref-update feed carries about
+a dozen visible events per day, not per second, so a firehose would be a blank screen
+most of the time, and a blank screen reads as broken software rather than as a quiet
+network. What is genuinely impressive is the accumulated total, so the page leads with
+a time-lapse of the whole history instead.
+
+The replay's clock is the interesting part. Activity is violently bursty: one day added
+978 repositories and many days added none. Giving every day equal time spends a third of
+the run on empty calendar; giving every arrival equal time hands that one day a third of
+the replay. Each day gets `1 + sqrt(arrivals)` of the budget instead, which keeps the
+shape without letting either extreme own the screen.
+
+The data is crawled once and committed, not fetched by the browser. The node sends no
+CORS headers, and its agents endpoint ignores pagination and answers with all 4,088 rows
+in a single 960KB response. Both are fine on a server and unacceptable on a page load.
+
+```sh
+node apps/push-wall/probe/crawl.mjs      # refresh the snapshot from the live node
+```
+
+Two things the page says out loud, because both are easy to misread. The push count is
+the node's own tally, while the ref-update list is a separate gossip feed of 200 rows
+spanning a month, so it is not the network's recent activity. And repository owner DIDs
+have no names: `/api/v1/resolve` answers only for peers and nodes, so the page truncates
+the identifier rather than inventing a label.
+
 ## Running it
 
 ```sh
-node dev-server.mjs        # http://localhost:5173/beat-the-bot/
+node dev-server.mjs        # http://localhost:5173/beat-the-bot/ and /push-wall/
 node api/lib/leaderboard.test.mjs
 node apps/beat-the-bot/probe/test-pow-fast.mjs
 node apps/beat-the-bot/probe/test-sha256.mjs
+node apps/push-wall/probe/test-snapshot.mjs
+node apps/push-wall/probe/test-derive.mjs
+node apps/push-wall/probe/test-timelapse.mjs
 ```
 
 Play from a terminal, one level at a time:
@@ -102,6 +138,9 @@ directly from another origin.
 apps/beat-the-bot/web/     the page
 apps/beat-the-bot/lib/     proof-of-work solver, shared by page and terminal runners
 apps/beat-the-bot/probe/   terminal runners, benchmarks, tests
+apps/push-wall/web/        the page, plus the committed snapshot under data/
+apps/push-wall/lib/        snapshot derivations and the replay clock (pure, tested)
+apps/push-wall/probe/      the crawler and its tests
 api/lib/                   proxy, proof verification, leaderboard rules (pure, tested)
 worker/                    Cloudflare entry point
 migrations/                ordered schema changes

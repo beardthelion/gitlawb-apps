@@ -30,22 +30,41 @@ jobs:
       - name: SHA-256 against node's native crypto
         run: node apps/beat-the-bot/probe/test-sha256.mjs
 
+      # The crawled snapshot is committed, so these run offline and guard the
+      # file that actually ships rather than whatever the node returns today.
+      - name: Network snapshot shape and invariants
+        run: node apps/push-wall/probe/test-snapshot.mjs
+
+      - name: Push Wall derivations (counters, curve, owners, events)
+        run: node apps/push-wall/probe/test-derive.mjs
+
+      - name: Push Wall replay clock and layout
+        run: node apps/push-wall/probe/test-timelapse.mjs
+
       - name: Build produces the shipping tree
         run: |
           node build.mjs
           test -f dist/llms.txt
           test -f dist/beat-the-bot/index.html
           test -f dist/beat-the-bot/lib/pow-fast.js
+          test -f dist/push-wall/index.html
+          test -f dist/push-wall/lib/timelapse.js
+          test -f dist/push-wall/data/snapshot.json
 
       # Literal control bytes inside a string or character class make a source
       # file read as binary: `file` reports "data" and plain grep silently
       # returns nothing for it. Two files in this repo had that, which quietly
       # hid all the scoring policy from any grep-based sweep.
+      #
+      # Match on the encoding, not on the description. `file -b` calls a plain
+      # JSON file "JSON text data", so grepping the description for "data"
+      # failed the first committed .json in the repo. --mime-encoding answers
+      # the question actually being asked: "binary" or a real text encoding.
       - name: Source files are text, not accidentally binary
         run: |
           fail=0
           for f in $(git ls-files '*.js' '*.mjs' '*.json' '*.md' '*.sql' '*.html' '*.css' '*.txt' '*.yml'); do
-            if file -b "$f" | grep -qi 'data'; then
+            if [ "$(file --mime-encoding -b "$f")" = "binary" ]; then
               echo "::error file=$f::reads as binary, likely a literal control byte; use an escape"
               fail=1
             fi
