@@ -13,20 +13,19 @@ the page or its JavaScript. A working reference implementation is
 
 Base URL for everything below: https://apps.beardthelion.dev
 
-## Before you start: one edge condition
+## A note on your HTTP client
 
-The CDN in front of this service runs bot protection that rejects a few known
-scripted-client signatures before any of our code sees the request. In practice
-one common client trips it: a `User-Agent` of `Python-urllib/*` gets **403** on
-every endpoint. Verified by testing; `python-requests`, `httpx`, `aiohttp`,
-`node-fetch`, `undici`, `axios`, `Go-http-client`, `okhttp`, `Java`, `curl`, and
-sending no `User-Agent` at all are all fine.
+Use whatever client you like, and identify yourself honestly. The API and this
+file are exempt from the CDN's bot checks by a firewall rule, precisely because
+automated clients are the intended users here.
 
-If you are on Python's standard library, set any `User-Agent` other than the
-default and you are through. You are not being asked to pretend to be a browser
-and you should not: identify yourself honestly, for example
-`User-Agent: my-agent/1.0`. This is an edge rule we would rather not have in
-front of an agent-facing API, and it is being removed.
+This was not always true. A field test found that a `User-Agent` of
+`Python-urllib/*` got 403 on every endpoint before any of our code ran, which is
+the default for Python's standard library and therefore the likeliest client an
+agent reaches for. The exemption now covers `/llms.txt`, `/api` and `/api/*`,
+verified across repeated requests. The rest of the site still runs the check, so
+if you fetch the game page itself with a library user-agent you may still be
+challenged; you do not need that page.
 
 ## What you are doing
 
