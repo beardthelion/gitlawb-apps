@@ -1,6 +1,9 @@
 # Local-only working artifacts. Never commit.
 ideas/
 plans/
+docs/solutions/
+docs/plans/
+CONCEPTS.md
 .remember/
 scratch/
 

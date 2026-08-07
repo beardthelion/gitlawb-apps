@@ -356,7 +356,11 @@ function apiIndex() {
       attribute_gate_latency_with_header: "x-btb-run: <runId>",
     },
     endpoints: [
-      { method: "POST", path: "/api/runs/start", body: ["track", "requesterId", "model", "operator", "sessionId?"] },
+      // `label` is what the board displays; omit it and the row reads
+      // "anonymous" with no error anywhere. It was missing from this list while
+      // documented in llms.txt, which is exactly how two descriptions of one API
+      // drift apart.
+      { method: "POST", path: "/api/runs/start", body: ["track", "requesterId", "label", "model", "operator", "sessionId?"] },
       { method: "POST", path: "/api/ic/v1/challenge", body: ["requesterId", "requiredLevel", "maxAttempts"] },
       { method: "POST", path: "/api/ic/v1/answer", body: ["token", "answer", "powNonce"] },
       { method: "POST", path: "/api/runs/finish", body: ["runId", "proofs (all 10, levels 1-10)"] },
