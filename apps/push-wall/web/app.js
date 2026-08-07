@@ -17,6 +17,7 @@ import {
   dailyNewRepos, dailyFromPairs, cumulative, peakDay,
   topOwners, topCapabilities, sortedPeers, recentEvents, splitRepoId,
 } from "./lib/derive.js";
+import { renderTimelapse } from "./timelapse-canvas.js";
 
 const SNAPSHOT_URL = "./data/snapshot.json";
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -327,9 +328,9 @@ function renderFooter(s) {
 
 // --- boot ----------------------------------------------------------------
 
-// One ordered list of render steps over one snapshot. P2's canvas time-lapse
-// slots in as another entry here plus its own section in the HTML; nothing
-// above needs to move for it.
+// One ordered list of render steps over one snapshot. The time-lapse is the
+// exception at the end: it needs the section to have a measurable width before
+// it can size a canvas, so it runs after the content is shown.
 export async function boot() {
   let snapshot;
   try {
@@ -354,6 +355,17 @@ export async function boot() {
   }
   $("status").hidden = true;
   $("content").hidden = false;
+
+  // Last, and after the unhide, because the canvas measures itself and a hidden
+  // element measures zero. Its own try: a failure here should cost the replay,
+  // not blank a page of correctly rendered panels.
+  try {
+    renderTimelapse(snapshot);
+  } catch (err) {
+    $("tl-alt").textContent =
+      `The replay could not start (${err?.message ?? err}). Every number it would ` +
+      "have shown is in the sections below.";
+  }
 }
 
 boot();

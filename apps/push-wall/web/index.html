@@ -45,6 +45,29 @@
       <p id="counter-note" class="fine"></p>
     </section>
 
+    <section id="timelapse-section" aria-labelledby="timelapse-heading">
+      <h2 id="timelapse-heading" class="section-heading">Five months, replayed</h2>
+      <div class="tl-frame">
+        <div class="tl-readout">
+          <span id="tl-date" class="tl-date"></span>
+          <span id="tl-repos" class="tl-repos"></span>
+          <span id="tl-agents" class="tl-agents"></span>
+        </div>
+        <!-- Sized by CSS, resolution set in JS from devicePixelRatio. -->
+        <canvas id="tl-canvas" role="img"></canvas>
+        <div id="tl-progress" class="tl-progress" role="progressbar"
+             aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"
+             aria-label="Replay position across the 149 days">
+          <span id="tl-progress-fill" class="tl-progress-fill"></span>
+        </div>
+        <div class="tl-controls">
+          <button type="button" id="tl-play" class="tl-button">play</button>
+          <button type="button" id="tl-restart" class="tl-button">restart</button>
+        </div>
+      </div>
+      <p id="tl-alt" class="fine"></p>
+    </section>
+
     <section id="growth-section" aria-labelledby="growth-heading">
       <h2 id="growth-heading" class="section-heading">Growth, day by day</h2>
       <div id="growth"></div>
